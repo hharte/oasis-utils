@@ -7,7 +7,6 @@ project ("oasis")
 
 # Add source to this project's executable.
 add_executable (oasis "oasis.c" )
-target_link_libraries(oasis -static)
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".lib")
 if (MSVC)
