@@ -70,20 +70,23 @@ typedef struct directory_entry_block {
 } directory_entry_block_t;
 #pragma pack (pop)
 
+#define LF      0x0A
+#define CR      0x0D
+#define SUB		0x1A
+
 typedef struct oasis_args {
 	char image_filename[256];
 	char output_path[256];
 	char operation[8];
 	int dir_block_cnt;
-	int force;
+	int ascii;
 	int quiet;
 } oasis_args_t;
 
 /* Function prototypes */
 int parse_args(int argc, char* argv[], oasis_args_t* args);
 int oasis_read_dir_entries(FILE* stream, directory_entry_block_t* dir_entries, int dir_block_cnt, int dir_entries_max);
-void oasis_list_dir_entry(directory_entry_block_t* dir_entry);
-int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char *path, int quiet);
+int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char *path, int quiet, int ascii);
 
 #if defined(_WIN32)
 #define strncasecmp(x,y,z) _strnicmp(x,y,z)
@@ -109,12 +112,13 @@ int main(int argc, char *argv[])
 		printf("OASIS File Utility (c) 2021 - Howard M. Harte\n");
 		printf("https://github.com/hharte/oasis\n\n");
 
-		printf("usage is: %s <filename.img> [command] [<filename>|<path>] [-q] [-b=n]\n", argv[0]);
+		printf("usage is: %s <filename.img> [command] [<filename>|<path>] [-q] [-a]\n", argv[0]);
 		printf("\t<filename.img> OASIS Disk Image in .img format.\n");
 		printf("\t[command]      LI - List files\n");
 		printf("\t               EX - Extract files to <path>\n");
 		printf("\tFlags:\n");
 		printf("\t      -q       Quiet: Don't list file details during extraction.\n");
+		printf("\t      -a       ASCII: Convert line endings and truncate output file at EOF.\n");
 		printf("\n\tIf no command is given, LIst is assumed.\n");
 		return (-1);
 	}
@@ -171,7 +175,7 @@ int main(int argc, char *argv[])
 			goto exit_main;
 		} else if (!strncasecmp(args.operation, "EX", 2)) {
 			for (i = 0; i < dir_entry_cnt; i++) {
-				result = oasis_extract_file(&dir_entry_list[i], instream, args.output_path, args.quiet);
+				result = oasis_extract_file(&dir_entry_list[i], instream, args.output_path, args.quiet, args.ascii);
 				if (result == 0) {
 					extracted_file_count++;
 				}
@@ -212,8 +216,8 @@ int parse_args(int argc, char* argv[], oasis_args_t *args)
 		else {
 			char flag = argv[i][1];
 			switch (flag) {
-			case 'f':
-				args->force = 1;
+			case 'a':
+				args->ascii = 1;
 				break;
 			case 'q':
 				args->quiet = 1;
@@ -335,7 +339,7 @@ void oasis_list_dir_entry(directory_entry_block_t* dir_entry)
 		other_str);
 }
 
-int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char *path, int quiet)
+int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char *path, int quiet, int ascii)
 {
 	char oasis_fname[FNAME_LEN + 1];
 	char fname[FNAME_LEN + 1];
@@ -366,12 +370,15 @@ int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char 
 	FILE* ostream;
 	int file_offset;
 	uint8_t* file_buf;
+	uint8_t file_format;
 	int file_len = 0;
+	int current_block = 0;
 	char output_filename[256];
 
-	switch (dir_entry->file_format & 0x1f) {
+	file_format = dir_entry->file_format & 0x1f;
+	switch (file_format) {
 	case FILE_FORMAT_RELOCATABLE:
-		file_len = dir_entry->file_format_dependent2;
+		file_len = dir_entry->record_count * dir_entry->file_format_dependent1;
 		snprintf(output_filename, sizeof(output_filename), "%s%c%s.%s_R_%d", path, kPathSeparator, fname, ftype, dir_entry->file_format_dependent1);
 		break;
 	case FILE_FORMAT_ABSOLUTE:
@@ -379,7 +386,7 @@ int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char 
 		snprintf(output_filename, sizeof(output_filename), "%s%c%s.%s_A_%d", path, kPathSeparator, fname, ftype, dir_entry->file_format_dependent2);
 		break;
 	case FILE_FORMAT_SEQUENTIAL:
-		file_len = (dir_entry->file_format_dependent2 + 1 - dir_entry->start_sector) * BLOCK_SIZE;
+		file_len = BLOCK_SIZE;	/* Determined by walking through the file block by block. */
 		snprintf(output_filename, sizeof(output_filename), "%s%c%s.%s_S_%d", path, kPathSeparator, fname, ftype, dir_entry->file_format_dependent1);
 		break;
 	case FILE_FORMAT_DIRECT:
@@ -407,11 +414,57 @@ int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char 
 		printf("Error Openening %s\n", output_filename);
 		return (-ENOENT);
 	} else if ((file_buf = (uint8_t*)calloc(1, file_len))) {
-		if (!quiet) printf("%s.%s -> %s (%d bytes)\n", oasis_fname, oasis_ftype, output_filename, file_len);
-
 		fseek(instream, file_offset, SEEK_SET);
-		fread(file_buf, file_len, 1, instream);
-		fwrite(file_buf, file_len, 1, ostream);
+
+		if (file_format != FILE_FORMAT_SEQUENTIAL) {
+			/* For all file types except sequential, copy the entire file in one shot (the file is contiguous) */
+			fread(file_buf, file_len, 1, instream);
+			fwrite(file_buf, file_len, 1, ostream);
+		}
+		else {
+			uint16_t link;
+
+			/* For sequential, copy the file block by block (the file may not be contiguous) */
+			do {
+				char text_buf[BLOCK_SIZE * 2];
+				char *text_ptr = text_buf;
+				int text_len;
+				int i;
+				fread(file_buf, BLOCK_SIZE, 1, instream);
+				link  = file_buf[BLOCK_SIZE - 1] << 8;
+				link |= file_buf[BLOCK_SIZE - 2];
+
+				for (i = 0; i < BLOCK_SIZE - 2; i++) {
+					if (ascii && (file_buf[i] == SUB)) {
+						/* Text file EOF */
+						break;
+					}
+					if (ascii && (file_buf[i] == CR)) {
+						/* OASIS uses CR for line endings: convert CR to CR/LF (for Windows) or LF (for UNIX) */
+#if defined(_WIN32)
+						*text_ptr++ = file_buf[i];
+#endif
+						*text_ptr++ = LF;	/* Add LF */
+					} else {
+						*text_ptr++ = file_buf[i];
+					}
+				}
+
+				text_len = (int)(text_ptr - text_buf);
+				fwrite(text_buf, text_len, 1, ostream);
+
+				current_block++;
+				if (current_block > dir_entry->block_count * 4) {
+					printf("Corrupted link: ");
+					break;
+				}
+
+				file_offset = link * BLOCK_SIZE;
+				fseek(instream, file_offset, SEEK_SET);
+			} while (link != 0);
+		}
+		if (!quiet) printf("%s.%s -> %s (%ld bytes)\n", oasis_fname, oasis_ftype, output_filename, ftell(ostream));
+
 		free(file_buf);
 		fclose(ostream);
 		return (0);
