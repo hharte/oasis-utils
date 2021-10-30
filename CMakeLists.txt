@@ -6,7 +6,12 @@ cmake_minimum_required (VERSION 3.8)
 project ("oasis")
 
 # Add source to this project's executable.
-add_executable (oasis "oasis.c" )
+add_executable (oasis "oasis.c"  "oasis.h" "oasis_utils.c" "oasis_utils.h")
+if (NOT APPLE)
+    target_link_libraries(oasis -static)
+else ()
+    target_link_libraries(oasis)
+endif (NOT APPLE)
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".lib")
 if (MSVC)
@@ -14,4 +19,3 @@ if (MSVC)
     target_link_options(oasis PRIVATE /INCREMENTAL:NO /NODEFAULTLIB:MSVCRT)
 endif (MSVC)
 
-# TODO: Add tests and install targets if needed.
