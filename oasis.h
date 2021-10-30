@@ -25,9 +25,13 @@
 
 #pragma pack (push, 1)
 /* OASIS Filesystem header */
+typedef struct oasis_tm {
+    uint8_t raw[3];
+} oasis_tm_t;
+
 typedef struct filesystem_block {
     char label[FNAME_LEN];
-    uint8_t timestamp[3];
+    oasis_tm_t timestamp;
     uint8_t unknown[12];
     uint8_t num_heads;
     uint8_t num_cyl;
@@ -47,7 +51,7 @@ typedef struct directory_entry_block {
     uint16_t block_count;
     uint16_t start_sector;
     uint16_t file_format_dependent1;
-    uint8_t timestamp[3];
+    oasis_tm_t timestamp;
     uint8_t owner_id;
     uint8_t shared_from_owner_id;
     uint16_t file_format_dependent2;

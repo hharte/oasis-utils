@@ -16,6 +16,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "oasis.h"
 
@@ -26,6 +27,33 @@ const char kPathSeparator =
 '/';
 #endif
 
+/* Packed timestamp:
+ * +-------------------------------------------------+
+ * | BYTE  |      0      |      1      |      2      |
+ * | FIELD | MMMM | DDDD | DYYY | YHHH | HHMM | MMMM |
+ * | BIT   | 7         0 | 7         0 | 7         0 |
+ * +-------------------------------------------------+
+ */
+void oasis_convert_timestamp_to_tm(oasis_tm_t *timestamp, struct tm *tmout)
+{
+	tmout->tm_mon = ((timestamp->raw[0] & 0xF0) >> 4) - 1;
+	tmout->tm_mday = ((timestamp->raw[0] & 0x0F) << 1) | ((timestamp->raw[1] & 0x80) >> 7);
+	tmout->tm_year = ((timestamp->raw[1] & 0x78) >> 3) + 77; /* 0 = 1977, highest valid year is 1992. */
+	tmout->tm_hour = ((timestamp->raw[1] & 0x07) << 2) | ((timestamp->raw[2] & 0xc0) >> 6);
+	tmout->tm_min = timestamp->raw[2] & 0x3F;
+	tmout->tm_sec = 0;
+}
+
+void oasis_convert_tm_to_timestamp(struct tm* tmin, oasis_tm_t* timestamp)
+{
+	timestamp->raw[0]  = ((tmin->tm_mon & 0xF) + 1) << 4;
+	timestamp->raw[0] |= ((tmin->tm_mday >> 1) & 0x0F);
+	timestamp->raw[1]  = ((tmin->tm_mday & 1) << 7);
+	timestamp->raw[1] |= ((tmin->tm_year - 77) & 0x0F) << 3;
+	timestamp->raw[1] |= ((tmin->tm_hour >> 2) & 0x07);
+	timestamp->raw[2]  = ((tmin->tm_hour & 0x03) << 6);
+	timestamp->raw[2] |= ((tmin->tm_min & 0x3F));
+}
 
 void oasis_list_dir_entry(directory_entry_block_t* dir_entry)
 {
@@ -33,8 +61,8 @@ void oasis_list_dir_entry(directory_entry_block_t* dir_entry)
 	char fext[FEXT_LEN + 1];
 	char format[8];
 	char other_str[8];
-	uint8_t day, month, year;
-	uint8_t hours, minutes;
+	struct tm tmout;
+	char buf[17];
 
 	if (dir_entry->file_format == 0) {
 		return;
@@ -43,19 +71,6 @@ void oasis_list_dir_entry(directory_entry_block_t* dir_entry)
 	snprintf(fname, sizeof(fname), "%s", dir_entry->file_name);
 	snprintf(fext, sizeof(fext), "%s", dir_entry->file_type);
 	snprintf(other_str, sizeof(other_str), "       ");
-
-	/* Packed timestamp:
-	 * +-------------------------------------------------+
-	 * | BYTE  |      0      |      1      |      2      |
-	 * | FIELD | MMMM | DDDD | DYYY | YHHH | HHMM | MMMM |
-	 * | BIT   | 7         0 | 7         0 | 7         0 |
-	 * +-------------------------------------------------+
-	 */
-	month = (dir_entry->timestamp[0] & 0xF0) >> 4;
-	day = ((dir_entry->timestamp[0] & 0x0F) << 1) | ((dir_entry->timestamp[1] & 0x80) >> 7);
-	year = ((dir_entry->timestamp[1] & 0x78) >> 3) + 77; /* 0 = 1977, highest valid year is 1992. */
-	hours = ((dir_entry->timestamp[1] & 0x07) << 2) | ((dir_entry->timestamp[2] & 0xc0) >> 6);
-	minutes = dir_entry->timestamp[2] & 0x3F;
 
 	switch (dir_entry->file_format) {
 	case FILE_FORMAT_DELETED:
@@ -100,13 +115,12 @@ void oasis_list_dir_entry(directory_entry_block_t* dir_entry)
 		}
 	}
 
-	printf("%s %s %02d/%02d/%02d %02d:%02d %5d %4d %s %5d %3d %3d  %s\n",
+	oasis_convert_timestamp_to_tm(&dir_entry->timestamp, &tmout);
+	strftime(buf, 17, "%m/%d/%y %H:%M", &tmout);
+	printf("%s %s %s %5d %4d %s %5d %3d %3d  %s\n",
 		fname,
 		fext,
-		month,
-		day,
-		year,
-		hours, minutes,
+		buf,
 		dir_entry->record_count,
 		dir_entry->block_count,
 		format,
