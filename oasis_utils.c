@@ -9,7 +9,13 @@
  *
  */
 
+#if defined(_WIN32)
 #define _CRT_SECURE_NO_DEPRECATE
+#include <windows.h>
+#else
+#include <sys/types.h>
+#include <utime.h>
+#endif
 
 #include <errno.h>
 #include <stdlib.h>
@@ -150,6 +156,41 @@ uint8_t oasis_lrcc(uint8_t* buf, uint16_t len)
 	lrcc &= 0x7F;
 
 	return lrcc;
+}
+
+void set_file_time(char* output_filename, struct tm* tmin)
+{
+#if defined(_WIN32)
+	FILETIME file_time;
+	SYSTEMTIME system_time;
+	HANDLE hOstream;
+
+	GetSystemTime(&system_time);
+
+	system_time.wDay = tmin->tm_mday;
+	system_time.wMonth = tmin->tm_mon;
+	system_time.wYear = tmin->tm_year + 1900;
+	system_time.wHour = tmin->tm_hour;
+	system_time.wMinute = tmin->tm_min;
+	system_time.wSecond = 0;
+
+	SystemTimeToFileTime(&system_time, &file_time);
+
+	hOstream = CreateFileA(output_filename,
+		FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
+		NULL, OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL, NULL);
+	SetFileTime(hOstream, &file_time, &file_time, &file_time);
+#else /* POSIX */
+	struct utimbuf file_time;
+
+	file_time.actime = mktime(tmin);
+	file_time.modtime = mktime(tmin);
+
+	if (utime(output_filename, &file_time)) {
+		fprintf(stderr, "Error setting timestamp for %s\n", output_filename);
+	}
+#endif
 }
 
 void dump_hex(uint8_t* data, int len)

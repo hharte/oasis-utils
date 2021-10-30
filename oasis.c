@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "oasis.h"
 #include "oasis_utils.h"
@@ -238,6 +239,7 @@ int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char 
 	int file_len = 0;
 	int current_block = 0;
 	char output_filename[256];
+	struct tm oasis_tm;
 
 	file_format = dir_entry->file_format & 0x1f;
 	switch (file_format) {
@@ -331,6 +333,10 @@ int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char 
 
 		free(file_buf);
 		fclose(ostream);
+
+		/* Preserve original file date/time */
+		oasis_convert_timestamp_to_tm(&dir_entry->timestamp, &oasis_tm);
+		set_file_time(output_filename, &oasis_tm);
 		return (0);
 	}
 
