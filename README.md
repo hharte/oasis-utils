@@ -2,7 +2,7 @@
 
 OASIS was a popular operating system used for business in the late 1970’s through the 1980’s on Z80-based computers.  
 
-`oasis` can list and extract files from OASIS disk images.
+`oasis` can list and extract files from OASIS disk images, preserving file dates.
 
 The filename in OASIS can be up to eight characters, with an eight character extension.  Each file has an associated file type:
 
@@ -77,12 +77,13 @@ In addition to the file name and extension, the OASIS filesystem stores metadata
 OASIS File Utility (c) 2021 - Howard M. Harte
 https://github.com/hharte/oasis-utils
 
-usage is: oasis <filename.img> [command] [<filename>|<path>] [-q] [-b=n]
+usage is: oasis <filename.img> [command] [<filename>|<path>] [-q] [-a]
         <filename.img> OASIS Disk Image in .img format.
         [command]      LI - List files
                        EX - Extract files to <path>
         Flags:
               -q       Quiet: Don't list file details during extraction.
+	      -a       ASCII: Convert line endings and truncate output file at EOF.
 
         If no command is given, LIst is assumed.
 ```
@@ -170,46 +171,47 @@ For example:
 
 ```
 $ oasis OASIS_Users_Group_Vol01.img ex OUG_Files
-Label: VOL$1
+Label: VOL$1   
 77-1-13
 112 directory entries
 23K free
-BLKFRI2.BASICOBJ -> OUG_Files\BLKFRI2.BASICOBJ_S_85 (9984 bytes)
-LEM.BASICOBJ -> OUG_Files\LEM.BASICOBJ_S_129 (5888 bytes)
-COMPILE.EXEC -> OUG_Files\COMPILE.EXEC_S_74 (1536 bytes)
-PURGE.EXEC -> OUG_Files\PURGE.EXEC_S_57 (1792 bytes)
-PERFRMCE.ARTICLE -> OUG_Files\PERFRMCE.ARTICLE_S_75 (8704 bytes)
-HARDDISK.ARTICLE -> OUG_Files\HARDDISK.ARTICLE_S_75 (1536 bytes)
-SERVICE.INFORMTN -> OUG_Files\SERVICE.INFORMTN_S_76 (3328 bytes)
-ADVENTUR.WORK -> OUG_Files\ADVENTUR.WORK_D_256 (51200 bytes)
-ADVENTUR.COMMAND -> OUG_Files\ADVENTUR.COMMAND_R_256 (20300 bytes)
-NEWS.LETTER1 -> OUG_Files\NEWS.LETTER1_S_70 (3584 bytes)
-CHASE.BASICOBJ -> OUG_Files\CHASE.BASICOBJ_S_65 (2560 bytes)
-WUMPUS.BASICOBJ -> OUG_Files\WUMPUS.BASICOBJ_S_78 (7424 bytes)
-REPEAT.EXEC -> OUG_Files\REPEAT.EXEC_S_61 (768 bytes)
-HEXAPAWN.BASICCOM -> OUG_Files\HEXAPAWN.BASICCOM_S_61 (5120 bytes)
-YAHTZEE.BASICCOM -> OUG_Files\YAHTZEE.BASICCOM_S_117 (6400 bytes)
-SOFTWARE.GUIDE -> OUG_Files\SOFTWARE.GUIDE_S_71 (3328 bytes)
-RUN$.EXEC -> OUG_Files\RUN$.EXEC_S_67 (768 bytes)
-VOL1.EXEC -> OUG_Files\VOL1.EXEC_S_73 (13056 bytes)
-ADVENTUR.MEMO -> OUG_Files\ADVENTUR.MEMO_S_62 (2816 bytes)
-GAMES.EXEC -> OUG_Files\GAMES.EXEC_S_66 (1280 bytes)
-POETRY.BASICOBJ -> OUG_Files\POETRY.BASICOBJ_S_81 (3328 bytes)
-DLRADVCE.ARTICLE -> OUG_Files\DLRADVCE.ARTICLE_S_75 (7936 bytes)
-LOAN.BASICOBJ -> OUG_Files\LOAN.BASICOBJ_S_81 (1536 bytes)
-LANDER.BASICOBJ -> OUG_Files\LANDER.BASICOBJ_S_66 (3584 bytes)
-AMAZE.BASICOBJ -> OUG_Files\AMAZE.BASICOBJ_S_73 (3840 bytes)
-DEALER.COSTINFO -> OUG_Files\DEALER.COSTINFO_S_76 (3328 bytes)
-OASIS.HARDWARE -> OUG_Files\OASIS.HARDWARE_S_73 (768 bytes)
-QUALITY.ARTICLE -> OUG_Files\QUALITY.ARTICLE_S_75 (3072 bytes)
-S$TREK.BASICOBJ -> OUG_Files\S$TREK.BASICOBJ_S_56 (4608 bytes)
-LANGUAGE.ARTICLE -> OUG_Files\LANGUAGE.ARTICLE_S_76 (5120 bytes)
-SERVICE.ARTICLE -> OUG_Files\SERVICE.ARTICLE_S_75 (3072 bytes)
-$README.FIRST1 -> OUG_Files\$README.FIRST1_S_75 (3584 bytes)
-EDTORIAL.ARTICLE -> OUG_Files\EDTORIAL.ARTICLE_S_75 (3840 bytes)
-BAGELS.BASICOBJ -> OUG_Files\BAGELS.BASICOBJ_S_65 (1792 bytes)
-SELECT1.EXEC -> OUG_Files\SELECT1.EXEC_S_46 (1792 bytes)
-AWARI.BASICCOM -> OUG_Files\AWARI.BASICCOM_S_64 (3584 bytes)
-LOVE.BASICOBJ -> OUG_Files\LOVE.BASICOBJ_S_113 (1792 bytes)
-COPYRITE.NOTICE -> OUG_Files\COPYRITE.NOTICE_S_65 (512 bytes)
+BLKFRI2.BASICOBJ -> OUG_Files/BLKFRI2.BASICOBJ_S_85 (9906 bytes)
+LEM.BASICOBJ -> OUG_Files/LEM.BASICOBJ_S_129 (5842 bytes)
+COMPILE.EXEC -> OUG_Files/COMPILE.EXEC_S_74 (1524 bytes)
+PURGE.EXEC -> OUG_Files/PURGE.EXEC_S_57 (1778 bytes)
+PERFRMCE.ARTICLE -> OUG_Files/PERFRMCE.ARTICLE_S_75 (8636 bytes)
+HARDDISK.ARTICLE -> OUG_Files/HARDDISK.ARTICLE_S_75 (1524 bytes)
+SERVICE.INFORMTN -> OUG_Files/SERVICE.INFORMTN_S_76 (3302 bytes)
+ADVENTUR.WORK -> OUG_Files/ADVENTUR.WORK_D_256 (51200 bytes)
+ADVENTUR.COMMAND -> OUG_Files/ADVENTUR.COMMAND_R_256 (25088 bytes)
+NEWS.LETTER1 -> OUG_Files/NEWS.LETTER1_S_70 (3556 bytes)
+CHASE.BASICOBJ -> OUG_Files/CHASE.BASICOBJ_S_65 (2540 bytes)
+WUMPUS.BASICOBJ -> OUG_Files/WUMPUS.BASICOBJ_S_78 (7366 bytes)
+REPEAT.EXEC -> OUG_Files/REPEAT.EXEC_S_61 (762 bytes)
+HEXAPAWN.BASICCOM -> OUG_Files/HEXAPAWN.BASICCOM_S_61 (5080 bytes)
+YAHTZEE.BASICCOM -> OUG_Files/YAHTZEE.BASICCOM_S_117 (6350 bytes)
+SOFTWARE.GUIDE -> OUG_Files/SOFTWARE.GUIDE_S_71 (3302 bytes)
+RUN$.EXEC -> OUG_Files/RUN$.EXEC_S_67 (762 bytes)
+VOL1.EXEC -> OUG_Files/VOL1.EXEC_S_73 (12954 bytes)
+ADVENTUR.MEMO -> OUG_Files/ADVENTUR.MEMO_S_62 (2794 bytes)
+GAMES.EXEC -> OUG_Files/GAMES.EXEC_S_66 (1270 bytes)
+POETRY.BASICOBJ -> OUG_Files/POETRY.BASICOBJ_S_81 (3302 bytes)
+DLRADVCE.ARTICLE -> OUG_Files/DLRADVCE.ARTICLE_S_75 (7874 bytes)
+LOAN.BASICOBJ -> OUG_Files/LOAN.BASICOBJ_S_81 (1524 bytes)
+LANDER.BASICOBJ -> OUG_Files/LANDER.BASICOBJ_S_66 (3556 bytes)
+AMAZE.BASICOBJ -> OUG_Files/AMAZE.BASICOBJ_S_73 (3810 bytes)
+DEALER.COSTINFO -> OUG_Files/DEALER.COSTINFO_S_76 (3302 bytes)
+OASIS.HARDWARE -> OUG_Files/OASIS.HARDWARE_S_73 (762 bytes)
+QUALITY.ARTICLE -> OUG_Files/QUALITY.ARTICLE_S_75 (3048 bytes)
+S$TREK.BASICOBJ -> OUG_Files/S$TREK.BASICOBJ_S_56 (4572 bytes)
+LANGUAGE.ARTICLE -> OUG_Files/LANGUAGE.ARTICLE_S_76 (5080 bytes)
+SERVICE.ARTICLE -> OUG_Files/SERVICE.ARTICLE_S_75 (3048 bytes)
+$README.FIRST1 -> OUG_Files/$README.FIRST1_S_75 (3556 bytes)
+EDTORIAL.ARTICLE -> OUG_Files/EDTORIAL.ARTICLE_S_75 (3810 bytes)
+BAGELS.BASICOBJ -> OUG_Files/BAGELS.BASICOBJ_S_65 (1778 bytes)
+SELECT1.EXEC -> OUG_Files/SELECT1.EXEC_S_46 (1778 bytes)
+AWARI.BASICCOM -> OUG_Files/AWARI.BASICCOM_S_64 (3556 bytes)
+LOVE.BASICOBJ -> OUG_Files/LOVE.BASICOBJ_S_113 (1778 bytes)
+COPYRITE.NOTICE -> OUG_Files/COPYRITE.NOTICE_S_65 (508 bytes)
 Extracted 38 files.
+
