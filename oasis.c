@@ -2,7 +2,7 @@
  * Utility to list directory contents of OASIS floppy disks,
  * and optionally extract the files.
  *
- * www.github.com/hharte/oasis
+ * www.github.com/hharte/oasis-utils
  *
  * (c) 2021, Howard M. Harte
  *
@@ -21,10 +21,6 @@
 
 #include "oasis.h"
 #include "oasis_utils.h"
-
-#define LF      0x0A
-#define CR      0x0D
-#define SUB		0x1A
 
 typedef struct oasis_args {
 	char image_filename[256];

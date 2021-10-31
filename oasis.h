@@ -1,7 +1,7 @@
 /*
  * OASIS Data Structures and Definitions
  *
- * www.github.com/hharte/oasis
+ * www.github.com/hharte/oasis-utils
  *
  * (c) 2021, Howard M. Harte
  *

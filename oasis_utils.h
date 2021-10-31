@@ -1,13 +1,18 @@
 /*
  * OASIS Utility Functions
  *
- * www.github.com/hharte/oasis
+ * www.github.com/hharte/oasis-utils
  *
  * (c) 2021, Howard M. Harte
  *
  * Reference: http://bitsavers.org/pdf/phaseOneSystems/oasis/
  *
  */
+
+#define LF      0x0A
+#define CR      0x0D
+#define SUB		0x1A
+
 extern const char kPathSeparator;
 
 extern void oasis_list_dir_entry(directory_entry_block_t* dir_entry);
