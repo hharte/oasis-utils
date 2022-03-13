@@ -1,5 +1,8 @@
 # OASIS / THEOS Disk Utility
 
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/01e6dc1425da4801a9ca361eda559ae7)](https://www.codacy.com/gh/hharte/oasis-utils/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=hharte/oasis-utils&amp;utm_campaign=Badge_Grade)
+[![Coverity](https://scan.coverity.com/projects/24657/badge.svg)](https://scan.coverity.com/projects/hharte-oasis-utils)
+
 OASIS was a popular operating system used for business in the late 1970’s through the 1980’s on Z80-based computers.  
 
 `oasis` can list and extract files from OASIS disk images, preserving file dates.
