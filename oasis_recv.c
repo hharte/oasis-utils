@@ -282,7 +282,6 @@ int oasis_packet_decode(uint8_t* inbuf, uint16_t inlen, uint8_t* outbuf, uint16_
 {
     uint8_t shift = 0;
     uint16_t j = 0;
-    uint8_t src_data;
     uint8_t dle_arg;
     uint8_t last_processed_char;
     uint8_t cksum = 0;
@@ -290,7 +289,7 @@ int oasis_packet_decode(uint8_t* inbuf, uint16_t inlen, uint8_t* outbuf, uint16_
     j = 0;
     for (uint16_t i = 3; i < inlen; i++)
     {
-        src_data = inbuf[i];
+        uint8_t src_data = inbuf[i];
         /* Process DLE (Data Link Escape) */
         if (src_data == DLE) {
             i++;
@@ -334,8 +333,8 @@ int oasis_packet_decode(uint8_t* inbuf, uint16_t inlen, uint8_t* outbuf, uint16_
                 cksum = oasis_lrcc(inbuf, i + 1);
                 if (cksum != inbuf[i + 1]) {
                     printf("Bad Checksum!\n");
-                    return 0;
                     *outlen = 0;
+                    return 0;
                 }
                 else {
                     *outlen = j;

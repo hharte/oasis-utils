@@ -114,13 +114,14 @@ int main(int argc, char *argv[])
     istream = fopen(ffd.cFileName, "rb");
     send_len = 0;
 
+    ffd.cFileName[sizeof(ffd.cFileName) - 1] = '\0';
     for (int i = 0; i < strlen(ffd.cFileName); i++) {
         if (ffd.cFileName[i] == '.' || ffd.cFileName[i] == '_') {
             ffd.cFileName[i] = ' ';
         }
     }
 
-    sscanf(ffd.cFileName, "%s %s %c %hd", fname_str, ftype_str, &ffmt, &frec_len);
+    sscanf(ffd.cFileName, "%8s %8s %c %hu", fname_str, ftype_str, &ffmt, &frec_len);
     strcat(fname_str, "        ");
     strcat(ftype_str, "        ");
     memcpy(pDirEntry->file_name, fname_str, 8);
@@ -349,7 +350,6 @@ int oasis_packet_encode(uint8_t* inbuf, uint16_t inlen, uint8_t* outbuf, uint16_
 {
     uint8_t shift = 0;
     uint16_t j = 0;
-    uint8_t src_data;
     uint8_t cksum = 0;
 
     outbuf[0] = inbuf[0];
@@ -359,7 +359,7 @@ int oasis_packet_encode(uint8_t* inbuf, uint16_t inlen, uint8_t* outbuf, uint16_
 
     for (uint16_t i = 3; i < inlen; i++)
     {
-        src_data = inbuf[i];
+        uint8_t src_data = inbuf[i];
 
         if ((src_data & 0x80) == shift) {
             outbuf[j] = src_data;
@@ -392,7 +392,7 @@ int oasis_packet_encode(uint8_t* inbuf, uint16_t inlen, uint8_t* outbuf, uint16_
         /* Four or more same bytes, compress. */
         if ((inbuf[i] == inbuf[i + 1]) && (src_data == inbuf[i + 2]) && (src_data == inbuf[i + 3])) {
             uint8_t run_length = 0;
-            while ((inbuf[i] == inbuf[i + 1]) && (i < (inlen - 1))) {
+            while ((i < (inlen - 1) && (inbuf[i] == inbuf[i + 1]))) {
                 i++;
                 run_length++;
             }

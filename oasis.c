@@ -183,11 +183,10 @@ int parse_args(int argc, char* argv[], oasis_args_t *args)
 int oasis_read_dir_entries(FILE* stream, directory_entry_block_t* dir_entries, int dir_block_cnt, int dir_entries_max)
 {
 	int dir_entry_index = 0;
-	directory_entry_block_t* dir_entry;
 
 	for (int i = 0; i < dir_entries_max; i++) {
 		size_t readlen;
-		dir_entry = &dir_entries[dir_entry_index];
+		directory_entry_block_t* dir_entry = &dir_entries[dir_entry_index];
 		readlen = fread(dir_entry, sizeof(directory_entry_block_t), 1, stream);
 
 		if (readlen == 1) {
