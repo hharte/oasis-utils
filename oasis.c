@@ -77,9 +77,17 @@ int main(int argc, char *argv[])
 		return (-ENOENT);
 	}
 
-	fseek(instream, 256, SEEK_SET);
+	if (0 != fseek(instream, 256, SEEK_SET)) {
+		fprintf(stderr, "Error seeking from image file.\n");
+		status = -EIO;
+		goto exit_main;
+	}
 
-	fread(&fs_block, sizeof(filesystem_block_t), 1, instream);
+	if (fread(&fs_block, sizeof(filesystem_block_t), 1, instream) != 1) {
+		fprintf(stderr, "Error reading from image file.\n");
+		status = -EIO;
+		goto exit_main;
+	}
 
 	char label[FNAME_LEN + 1];
 
