@@ -4,7 +4,7 @@
  *
  * www.github.com/hharte/oasis-utils
  *
- * (c) 2021, Howard M. Harte
+ * (c) 2021-2022, Howard M. Harte
  *
  * Reference: Directory Entry Block (DEB) http://bitsavers.org/pdf/phaseOneSystems/oasis/Macro_Assembler_Reference_Manual_2ed.pdf pp. 112
  *
@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
 	positional_arg_cnt = parse_args(argc, argv, &args);
 
 	if (positional_arg_cnt == 0) {
-		printf("OASIS File Utility (c) 2021 - Howard M. Harte\n");
+		printf("OASIS File Utility [%s] (c) 2021 - Howard M. Harte\n", VERSION);
 		printf("https://github.com/hharte/oasis-utils\n\n");
 
 		printf("usage is: %s <filename.img> [command] [<filename>|<path>] [-q] [-a]\n", argv[0]);

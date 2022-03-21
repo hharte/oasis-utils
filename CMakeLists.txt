@@ -5,6 +5,17 @@ cmake_minimum_required (VERSION 3.8)
 
 project ("oasis")
 
+execute_process(COMMAND git describe --dirty --always --tags
+                OUTPUT_VARIABLE GIT_REV
+                ERROR_QUIET)
+
+if ("${GIT_REV}" STREQUAL "")
+    set(GIT_REV "Unknown")
+endif()
+
+string(STRIP "${GIT_REV}" GIT_REV)
+add_definitions(-DVERSION=\"${GIT_REV}\")
+
 # Add source to this project's executable.
 add_executable (oasis "oasis.c"  "oasis.h" "oasis_sendrecv.h" "oasis_utils.c" "oasis_utils.h")
 if (NOT APPLE)

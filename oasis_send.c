@@ -3,7 +3,7 @@
  *
  * www.github.com/hharte/oasis-utils
  *
- * (c) 2021, Howard M. Harte
+ * (c) 2021-2022, Howard M. Harte
  *
  * Reference: http://bitsavers.org/pdf/phaseOneSystems/oasis/Communications_Reference_Manual_Mar80.pdf pp. 8
  *
@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
     positional_arg_cnt = parse_args(argc, argv, &args);
 
     if (positional_arg_cnt == 0) {
-        printf("OASIS Send Utility (c) 2021 - Howard M. Harte\n");
+        printf("OASIS Send Utility [%s] (c) 2021 - Howard M. Harte\n", VERSION);
         printf("https://github.com/hharte/oasis-utils\n\n");
 
         printf("usage is: %s <port> [<filename>|<path>] [-q] [-a]\n", argv[0]);
