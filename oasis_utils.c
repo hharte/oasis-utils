@@ -137,28 +137,6 @@ void oasis_list_dir_entry(directory_entry_block_t* dir_entry)
 		other_str);
 }
 
-/*
- * Text messages include a Longitudinal Redundancy Check Code (LRCC) which is the
- * 8-bit sum of all characters transmitted in the record, including all
- * control characters. The sum is logically ORed with 0xC0 and transmitted at the
- * end of the message
- */
-uint8_t oasis_lrcc(uint8_t* buf, uint16_t len)
-{
-	uint8_t lrcc = 0;
-	for (uint16_t i = 0; i < len; i++) {
-		lrcc += buf[i];
-	}
-
-	/* Not sure why OASIS didn't specify the LRCC as being ORed with 0x40, since the
-	 * high bit will be masked on transmit anyway.
-	 */
-	lrcc |= 0xC0;
-	lrcc &= 0x7F;
-
-	return lrcc;
-}
-
 void set_file_time(char* output_filename, struct tm* tmin)
 {
 #if defined(_WIN32)
@@ -196,7 +174,7 @@ void set_file_time(char* output_filename, struct tm* tmin)
 
 void dump_hex(uint8_t* data, int len)
 {
-	uint8_t ascii[32];
+	uint8_t ascii[32] = { 0 };
 	uint8_t* pascii = ascii;
 
 	printf("\n");

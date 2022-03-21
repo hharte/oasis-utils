@@ -44,7 +44,7 @@ int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char 
 int main(int argc, char *argv[])
 {
 	FILE* instream;
-	directory_entry_block_t* dir_entry_list;
+	directory_entry_block_t* dir_entry_list = NULL;
 	filesystem_block_t fs_block;
 	oasis_args_t args;
 	int positional_arg_cnt;
@@ -291,11 +291,11 @@ int oasis_extract_file(directory_entry_block_t* dir_entry, FILE* instream, char 
 			fwrite(file_buf, file_len, 1, ostream);
 		}
 		else {
-			uint16_t link;
+			uint16_t link = 0;
 
 			/* For sequential, copy the file block by block (the file may not be contiguous) */
 			do {
-				char text_buf[BLOCK_SIZE * 2];
+				char text_buf[BLOCK_SIZE * 2] = { 0 };
 				char *text_ptr = text_buf;
 				int text_len;
 				int i;

@@ -3,7 +3,7 @@
  *
  * www.github.com/hharte/oasis-utils
  *
- * (c) 2021, Howard M. Harte
+ * (c) 2021-2022, Howard M. Harte
  *
  * Reference: Directory Entry Block (DEB) http://bitsavers.org/pdf/phaseOneSystems/oasis/Macro_Assembler_Reference_Manual_2ed.pdf pp. 112
  *

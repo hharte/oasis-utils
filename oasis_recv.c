@@ -11,21 +11,21 @@
  * PATCH.COMMAND
  * DESPOOL.COMMAND
  * SYSTEM.ERRMSG
- * 
+ *
  */
 
 #define _CRT_SECURE_NO_DEPRECATE
 
-#include <windows.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
+#include <errno.h>
 #include <time.h>
 
 #include "oasis.h"
 #include "oasis_utils.h"
 #include "oasis_sendrecv.h"
-
-#define COMM_PORT   "\\\\.\\COM12"   /* COM12 */
+#include "mm_serial.h"
 
 typedef struct oasis_recv_args {
     char port_path[256];
@@ -42,22 +42,19 @@ int oasis_open_file(directory_entry_block_t* dir_entry, FILE** ostream, char* pa
 
 int main(int argc, char *argv[])
 {
-    HANDLE hComm;
-    DCB myDCB;
-    COMMTIMEOUTS cto;
+    int fd;
     uint8_t commBuffer[1024];
     uint8_t decoded_buf[512];
     uint8_t cksum;
-    BOOL Status;
-    uint32_t bytes_written;
-    uint32_t bytes_read;
+    ssize_t bytes_written;
+    ssize_t bytes_read;
     uint16_t decoded_len;
     OASIS_PACKET_HEADER_T* pHdr;
     directory_entry_block_t DirEntry = { 0 };
     directory_entry_block_t* pDirEntry = &DirEntry;
-    FILE* ostream;
+    FILE* ostream = NULL;
     int file_len = 0;
-    int num_segments;
+    int num_segments = 0;
     int debug_segment = 999;
     int positional_arg_cnt;
     oasis_recv_args_t args;
@@ -76,38 +73,34 @@ int main(int argc, char *argv[])
         return (-1);
     }
 
-    hComm = CreateFileA(args.port_path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-
-    if (hComm == INVALID_HANDLE_VALUE) {
-        printf("Error opening %s.\n", COMM_PORT);
-    }
-    else {
-        printf("Opened %s successfully.\n", COMM_PORT);
+    if ((fd = open_serial(args.port_path)) < 0) {
+        printf("Error opening %s.\n", args.port_path);
+        return (-1);
     }
 
-    GetCommState(hComm, &myDCB);
+    if (init_serial(fd, 9600) != 0) {
+        printf("Error initializing %s.\n", args.port_path);
+        return (-1);
+    }
 
-    myDCB.BaudRate = 9600;
-    SetCommState(hComm, &myDCB);
+    printf("Waiting for Sending Station");
 
-    GetCommTimeouts(hComm, &cto);
-    // Set the new timeouts
-    cto.ReadIntervalTimeout = 100;
-    cto.ReadTotalTimeoutConstant = 100;
-    cto.ReadTotalTimeoutMultiplier = 100;
-    SetCommTimeouts(hComm, &cto);
-
-    printf("Waiting for Sending Station\n\n");
-
-    while (1) {
-        Status = ReadFile(hComm, commBuffer, 1, &bytes_read, NULL);
+    for (int retries = 100;; retries--) {
+        bytes_read = read_serial(fd, commBuffer, 1);
 
         if (commBuffer[0] == ENQ) {
-            printf("Start of file transfer\n");
+            printf("\nStart of file transfer\n");
             break;
         }
         else {
-//            printf("Retrying...\n");
+            if ((retries-1) % 10 == 0) {
+                printf(".");
+            }
+        }
+
+        if (retries == 0) {
+            printf("\nTimeout waiting for sending station.\n");
+            return (-2);
         }
     }
 
@@ -118,9 +111,9 @@ int main(int argc, char *argv[])
         commBuffer[0] = DLE;
         commBuffer[1] = '0' + (toggle & 1);
 
-        Status = WriteFile(hComm, commBuffer, 2, &bytes_written, NULL);
+        bytes_written = write_serial(fd, commBuffer, 2);
 
-        Status = ReadFile(hComm, commBuffer, sizeof(commBuffer), &bytes_read, NULL);
+        bytes_read = read_serial(fd, commBuffer, sizeof(commBuffer));
 
         for (uint16_t i = 0; i < bytes_read; i++) {
             commBuffer[i] &= 0x7F;          /* Strip off MSB */
@@ -128,7 +121,7 @@ int main(int argc, char *argv[])
 
 //        printf("\nPacket %d, len=%d:\n", toggle, bytes_read);
         fflush(stdout);
-        if (current_segment == debug_segment) dump_hex(commBuffer, bytes_read);
+        if (current_segment == debug_segment) dump_hex(commBuffer, (int)bytes_read);
 
         if (bytes_read > 3) {
             cksum = oasis_packet_decode(commBuffer, (uint16_t)bytes_read, decoded_buf, &decoded_len);
@@ -140,7 +133,7 @@ int main(int argc, char *argv[])
                 case CLOSE: /* File information */
                     printf("\nEnd of File                                    \n");
 //                    dump_hex(decoded_buf, decoded_len);
-                    fclose(ostream);
+                    if (ostream != NULL) fclose(ostream);
 
                     /* Preserve original file date/time */
 //                    oasis_convert_timestamp_to_tm(&pDirEntry->timestamp, &oasis_tm);
@@ -165,7 +158,7 @@ int main(int argc, char *argv[])
                     if ((pDirEntry->file_format & 0x1F) != FILE_FORMAT_SEQUENTIAL) {
                         current_segment++;
                         if (current_segment <= num_segments) {
-                            printf("\rSegment: %d", current_segment);
+                            printf("\rSegment: S %d", current_segment);
                             fwrite(decoded_buf, decoded_len, 1, ostream);
                         }
                         else {
@@ -175,7 +168,7 @@ int main(int argc, char *argv[])
                     else {
                         uint16_t link;
 
-                        char text_buf[BLOCK_SIZE * 2];
+                        char text_buf[BLOCK_SIZE * 2] = { 0 };
                         char* text_ptr = text_buf;
                         int text_len;
                         int i;
@@ -206,7 +199,7 @@ int main(int argc, char *argv[])
                         fwrite(text_buf, text_len, 1, ostream);
 
                         if (current_segment >= pDirEntry->block_count * 4) {
-                            printf("Corrupted link: ");
+                            printf("Corrupted link: %d >= %d", current_segment, pDirEntry->block_count * 4);
                             break;
                         }
                     }
@@ -220,7 +213,7 @@ int main(int argc, char *argv[])
             else {
                 printf("Error decoding packet, send NAK.\n");
                 printf("Raw packet:\n");
-                dump_hex(&commBuffer[0], bytes_read);
+                dump_hex(&commBuffer[0], (int)bytes_read);
             }
         }
         else {
@@ -228,13 +221,13 @@ int main(int argc, char *argv[])
         }
 
         if ((commBuffer[0] == DLE) && (commBuffer[1] == EOT)) {
-            printf("\nEnd of Transmission\n");
+            printf("End of Transmission\n");
             break;
         }
     }
 
     /* Close the serial port */
-    CloseHandle(hComm);
+    close_serial(fd);
 
     return 0;
 }
@@ -275,94 +268,6 @@ int parse_args(int argc, char* argv[], oasis_recv_args_t* args)
     }
     return positional_arg_cnt;
 }
-
-
-int oasis_packet_decode(uint8_t* inbuf, uint16_t inlen, uint8_t* outbuf, uint16_t* outlen)
-{
-    uint8_t shift = 0;
-    uint16_t j = 0;
-    uint8_t dle_arg;
-    uint8_t last_processed_char;
-    uint8_t cksum = 0;
-
-    j = 0;
-    for (uint16_t i = 3; i < inlen; i++)
-    {
-        uint8_t src_data = inbuf[i];
-        /* Process DLE (Data Link Escape) */
-        if (src_data == DLE) {
-            i++;
-            dle_arg = inbuf[i];
-            switch (dle_arg) {
-            case SI:    /* Shift in (add 0x80 to the following data) */
-                shift = 0x80;
-                break;
-            case SO:    /* Shift out (don't add 0x80 to the following data) */
-                shift = 0x00;
-                break;
-            case DLE:   /* DLE+DLE emits DLE (0x10) into the output buffer. */
-                last_processed_char = DLE | shift;
-                outbuf[j] = last_processed_char;
-                j++;
-                break;
-            case VT:    /* VT: repeat last_processed_char tablen times. */
-            {
-                int tablen = inbuf[++i];
-                if (tablen == DLE) {
-                    switch (inbuf[++i]) {
-                    case DLE:
-                        tablen = DLE;
-                        break;
-                    case CAN:
-                        tablen = ESC;
-                        break;
-                    default:
-                        printf("\n\nERROR: Unknown Tablen 0x%x after DLE.\n", inbuf[i-1]);
-                        break;
-                    }
-                }
-                for (int k = 0; k < tablen; k++) {
-                    outbuf[j] = last_processed_char;
-                    j++;
-                }
-                break;
-            }
-            case ETX:
-                //                printf("<ETX> at %d\n", i);
-                cksum = oasis_lrcc(inbuf, i + 1);
-                if (cksum != inbuf[i + 1]) {
-                    printf("Bad Checksum!\n");
-                    *outlen = 0;
-                    return 0;
-                }
-                else {
-                    *outlen = j;
-                    return cksum;
-                }
-                break;
-            case CAN:
-                last_processed_char = ESC | shift;
-                outbuf[j] = last_processed_char;
-                j++;
-                break;
-            default:
-                printf("At %d: Unknown DLE=0x%2x\n", i, inbuf[i]);
-                break;
-            }
-        }
-        else {    /* Process normal character */
-            last_processed_char = inbuf[i] + shift;
-            outbuf[j] = last_processed_char;
-            j++;
-        }
-    }
-
-    printf("Decoded %d input bytes to %d output bytes, without reaching <ETX>.\n", inlen, j);
-    *outlen = 0;
-
-    return 0;
-}
-
 
 int oasis_open_file(directory_entry_block_t* dir_entry, FILE** ostream, char* path, int quiet)
 {

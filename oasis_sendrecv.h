@@ -3,7 +3,7 @@
  *
  * www.github.com/hharte/oasis-utils
  *
- * (c) 2021, Howard M. Harte
+ * (c) 2021-2022, Howard M. Harte
  *
  * Reference: http://bitsavers.org/pdf/phaseOneSystems/oasis/Communications_Reference_Manual_Mar80.pdf pp. 8
  *
@@ -38,3 +38,9 @@ typedef struct OASIS_PACKET_TRAILER {
 	uint8_t rectype;
 } OASIS_PACKET_TRAILER_T;
 #pragma pack (pop)
+
+extern int oasis_packet_decode(uint8_t* inbuf, uint16_t inlen, uint8_t* outbuf, uint16_t* outlen);
+extern int oasis_send_packet(int fd, uint8_t* buf, uint16_t len, uint8_t cmd);
+extern int oasis_wait_for_ack(int fd);
+extern int oasis_packet_encode(uint8_t* inbuf, uint16_t inlen, uint8_t* outbuf, uint16_t* outlen);
+extern uint8_t oasis_lrcc(uint8_t* buf, uint16_t len);
