@@ -32,3 +32,11 @@ if(MSVC)
 SET_TARGET_PROPERTIES(oasis_send PROPERTIES LINK_FLAGS "setargv.obj")
 endif()
 target_link_libraries(oasis_send oasis_sendrecv mm_serial)
+
+# Install
+if (NOT MSVC)
+install(TARGETS oasis DESTINATION /usr/local/bin)
+install(TARGETS oasis_recv DESTINATION /usr/local/bin)
+install(TARGETS oasis_send DESTINATION /usr/local/bin)
+endif()
+

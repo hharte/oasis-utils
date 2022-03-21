@@ -3,6 +3,7 @@ CMakeFiles/
 CMakeSettings.json
 Makefile
 cmake_install.cmake
+install_manifest.txt
 oasis
 out/
 .vs/
