@@ -8,6 +8,8 @@ execute_process(COMMAND git describe --dirty --always --tags
                 OUTPUT_VARIABLE GIT_REV
                 ERROR_QUIET)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if ("${GIT_REV}" STREQUAL "")
     set(GIT_REV "Unknown")
 endif()

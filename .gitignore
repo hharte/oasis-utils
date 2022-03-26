@@ -3,7 +3,11 @@ CMakeFiles/
 CMakeSettings.json
 Makefile
 cmake_install.cmake
+compile_commands.json
 install_manifest.txt
 oasis
+oasis_recv
+oasis_send
 out/
 .vs/
+*.a
