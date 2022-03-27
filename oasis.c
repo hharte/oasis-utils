@@ -82,7 +82,7 @@ int main(int argc, char *argv[]) {
         printf(
             "\t      -a       ASCII: Convert line endings and truncate output file at EOF.\n");
         printf("\n\tIf no command is given, LIst is assumed.\n");
-        return -1;
+        return -EINVAL;
     }
 
     if (!(instream = fopen(args.image_filename, "rb"))) {

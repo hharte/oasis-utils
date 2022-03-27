@@ -17,6 +17,7 @@
 
 #include "./oasis_sendrecv.h"
 #include "./mm_serial.h"
+#include "./oasis_utils.h"
 
 #if defined(_MSC_VER)
 # include <BaseTsd.h>
@@ -114,11 +115,11 @@ int oasis_packet_decode(uint8_t *inbuf, uint16_t inlen, uint8_t *outbuf, uint16_
 int oasis_send_packet(int fd, uint8_t *buf, uint16_t len, uint8_t cmd) {
     uint8_t  commBuffer[1024];
     uint8_t  decoded_buf[512] = { 0 };
-    uint8_t  cksum;
-    ssize_t  bytes_written;
     uint16_t encoded_len;
-
-    //    printf("Sending %d bytes, cmd='%c'\n", len, cmd);
+#ifdef DEBUG_SEND
+    uint8_t  cksum;
+    printf("Sending %d bytes, cmd='%c'\n", len, cmd);
+#endif /* DEBUG_SEND */
 
     decoded_buf[0] = DLE;
     decoded_buf[1] = STX;
@@ -128,29 +129,36 @@ int oasis_send_packet(int fd, uint8_t *buf, uint16_t len, uint8_t cmd) {
         memcpy(&decoded_buf[3], buf, len);
     }
 
-    //    dump_hex(decoded_buf, len + 3);
+#ifdef DEBUG_SEND
+    dump_hex(decoded_buf, len + 3);
+    cksum =
+#endif /* DEBUG_SEND */
+    oasis_packet_encode(decoded_buf, len + 3, commBuffer, &encoded_len);
 
-    cksum = oasis_packet_encode(decoded_buf, len + 3, commBuffer, &encoded_len);
-
-    //    printf("LRCC: 0x%02x\n", cksum);
-    //    dump_hex(commBuffer, encoded_len);
+#ifdef DEBUG_SEND
+    printf("LRCC: 0x%02x\n", cksum);
+    dump_hex(commBuffer, encoded_len);
+#endif /* DEBUG_SEND */
 
     for (uint16_t i = 0; i < len; i++) {
         commBuffer[i] |= 0x80;
     }
 
-    bytes_written = write_serial(fd, commBuffer, encoded_len);
+    if (write_serial(fd, commBuffer, encoded_len) != encoded_len) {
+        return -1;
+    }
 
     return 0;
 }
 
 int oasis_wait_for_ack(int fd) {
-    ssize_t bytes_read;
     uint8_t buf[2];
     int8_t  toggle = -1;
 
     for (int retry = 0; retry < 5; retry++) {
-        bytes_read = read_serial(fd, buf, 2);
+        if (read_serial(fd, buf, 2) != 2) {
+            continue;
+        }
 
         if ((buf[0] != DLE) && ((buf[1] != '0') && (buf[1] != '1'))) {
             //            printf("Retrying...\n");

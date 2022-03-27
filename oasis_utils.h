@@ -12,6 +12,10 @@
 #ifndef OASIS_UTILS_H_
 #define OASIS_UTILS_H_
 
+#include <stdint.h>
+#include <time.h>
+#include "./oasis.h"
+
 #define LF      0x0A
 #define CR      0x0D
 #define SUB     0x1A

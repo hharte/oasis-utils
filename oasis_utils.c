@@ -53,6 +53,8 @@ void oasis_convert_timestamp_to_tm(oasis_tm_t *timestamp, struct tm *tmout) {
     tmout->tm_min   = timestamp->raw[2] & 0x3F;
     tmout->tm_sec   = 0;
     tmout->tm_isdst = 0;
+    tmout->tm_wday  = 0;
+    tmout->tm_yday  = 0;
 }
 
 void oasis_convert_tm_to_timestamp(struct tm *tmin, oasis_tm_t *timestamp) {

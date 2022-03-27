@@ -41,7 +41,7 @@ int parse_args(int argc, char              *argv[], oasis_recv_args_t *args);
 int oasis_packet_decode(uint8_t *inbuf, uint16_t  inlen, uint8_t  *outbuf, uint16_t *outlen);
 int oasis_open_file(directory_entry_block_t *dir_entry,
                     FILE                   **ostream,
-                    char                    *path,
+                    const char              *path,
                     int                      quiet);
 
 
@@ -50,14 +50,12 @@ int main(int argc, char *argv[]) {
     uint8_t  commBuffer[1024];
     uint8_t  decoded_buf[512];
     uint8_t  cksum;
-    ssize_t  bytes_written;
     ssize_t  bytes_read;
     uint16_t decoded_len;
     OASIS_PACKET_HEADER_T   *pHdr;
     directory_entry_block_t  DirEntry  = { 0 };
     directory_entry_block_t *pDirEntry = &DirEntry;
     FILE *ostream                      = NULL;
-    int   file_len                     = 0;
     int   num_segments                 = 0;
     int   debug_segment                = 999;
     int   positional_arg_cnt;
@@ -78,17 +76,17 @@ int main(int argc, char *argv[]) {
             "\t      -q       Quiet: Don't list file details during extraction.\n");
         printf(
             "\t      -a       ASCII: Convert line endings and truncate output file at EOF.\n");
-        return -1;
+        return -EINVAL;
     }
 
     if ((fd = open_serial(args.port_path)) < 0) {
         printf("Error opening %s.\n", args.port_path);
-        return -1;
+        return -ENOENT;
     }
 
     if (init_serial(fd, 9600) != 0) {
         printf("Error initializing %s.\n", args.port_path);
-        return -1;
+        return -EIO;
     }
 
     printf("Waiting for Sending Station");
@@ -107,7 +105,7 @@ int main(int argc, char *argv[]) {
 
         if (retries == 0) {
             printf("\nTimeout waiting for sending station.\n");
-            return -2;
+            return -ETIME;
         }
     }
 
@@ -165,7 +163,7 @@ int main(int argc, char *argv[]) {
 
                         // printf("Fname--- Ftype--  --Date-- Time- -Recs Blks Format- -Sect Own SOw Other-\n");
                         // oasis_list_dir_entry(pDirEntry);
-                        file_len        = oasis_open_file(pDirEntry, &ostream, ".", 0);
+                        oasis_open_file(pDirEntry, &ostream, ".", 0);
                         current_segment = 0;
                         num_segments    = ((pDirEntry->record_count * pDirEntry->file_format_dependent1) / BLOCK_SIZE);
                         break;
@@ -218,7 +216,7 @@ int main(int argc, char *argv[]) {
                             }
 
                             text_len = (int)(text_ptr - text_buf);
-                            printf("\rSegment: %d", current_segment);
+                            printf("\rSegment: %d, Link: %d", current_segment, link);
                             fwrite(text_buf, text_len, 1, ostream);
 
                             if (current_segment >= pDirEntry->block_count * 4) {
@@ -291,7 +289,7 @@ int parse_args(int argc, char *argv[], oasis_recv_args_t *args) {
     return positional_arg_cnt;
 }
 
-int oasis_open_file(directory_entry_block_t *dir_entry, FILE **ostream, char *path, int quiet) {
+int oasis_open_file(directory_entry_block_t *dir_entry, FILE **ostream, const char *path, int quiet) {
     char oasis_fname[FNAME_LEN + 1];
     char fname[FNAME_LEN + 1];
     char oasis_ftype[FEXT_LEN + 1];

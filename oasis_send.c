@@ -49,21 +49,18 @@ int main(int argc, char *argv[]) {
     int fd;
     uint8_t commBuffer[1024] = { 0 };
     uint8_t decoded_buf[512];
-    ssize_t bytes_written;
     ssize_t bytes_read;
     directory_entry_block_t  DirEntry  = { 0 };
     directory_entry_block_t *pDirEntry = &DirEntry;
     FILE *istream;
     struct tm oasis_tm = { 0 };
     int file_len       = 0;
-    int toggle         = 0;
     int positional_arg_cnt;
     oasis_send_args_t args;
     char fname_str[256];
     char ftype_str[256];
     char ffmt;
-    uint8_t *sequential_buf;
-    int send_len;
+    int  send_len;
     uint16_t frec_len;
 
     positional_arg_cnt = parse_args(argc, argv, &args);
@@ -77,17 +74,17 @@ int main(int argc, char *argv[]) {
         printf("\tFlags:\n");
         printf("\t      -q       Quiet: Don't list file details during extraction.\n");
         printf("\t      -a       ASCII: Convert line endings and truncate output file at EOF.\n");
-        return -1;
+        return -EINVAL;
     }
 
     if ((fd = open_serial(args.port_path)) < 0) {
         printf("Error opening %s.\n", args.port_path);
-        return -1;
+        return -ENOENT;
     }
 
     if (init_serial(fd, 9600) != 0) {
         printf("Error initializing %s.\n", args.port_path);
-        return -1;
+        return -EIO;
     }
 
     for (int i = args.input_filename_index; i < argc; i++) {
@@ -98,13 +95,15 @@ int main(int argc, char *argv[]) {
         send_filename[sizeof(send_filename) - 1] = '\0';
 
         if (check_regular_file(send_filename)) {
+            uint8_t *sequential_buf = NULL;
+
             istream  = fopen(send_filename, "rb");
             send_len = 0;
             int retries = 20;
 
             send_filename[sizeof(send_filename) - 1] = '\0';
 
-            for (int i = 0; i < strlen(send_filename); i++) {
+            for (size_t i = 0; i < strlen(send_filename); i++) {
                 if ((send_filename[i] == '.') || (send_filename[i] == '_')) {
                     send_filename[i] = ' ';
                 }
@@ -117,10 +116,6 @@ int main(int argc, char *argv[]) {
                 frec_len = 0;
             }
 
-#if 0
-            strcat(fname_str, "        ");
-            strcat(ftype_str, "        ");
-#endif // 0
             memcpy(pDirEntry->file_name, fname_str, 8);
             memcpy(pDirEntry->file_type, ftype_str, 8);
 
@@ -149,7 +144,13 @@ int main(int argc, char *argv[]) {
 
                     pDirEntry->block_count = (file_len + 1023) / 1024;
 
-                    sequential_buf = calloc((size_t)pDirEntry->block_count * 1024, sizeof(uint8_t));
+                    sequential_buf = (uint8_t *)(calloc((size_t)pDirEntry->block_count * 1024, sizeof(uint8_t)));
+
+                    if (sequential_buf == NULL) {
+                        printf("Memory allocation of %d bytes failed.\n", pDirEntry->block_count * 1024);
+                        return -ENOMEM;
+                    }
+
                     memset(sequential_buf, SUB, sizeof(uint8_t) * pDirEntry->block_count * 1024);
 
                     int line_count = 0;
@@ -199,19 +200,25 @@ int main(int argc, char *argv[]) {
 
             do {
                 commBuffer[0] = ENQ;
-                bytes_written = write_serial(fd, commBuffer, 1);
+
+                if (write_serial(fd, commBuffer, 1) != 1) {
+                    printf("Error writing to serial port.\n");
+                }
 
                 retries--;
                 printf(".");
 
                 if (retries == 0) {
                     printf("\nTimeout waiting for sending station.\n");
-                    return -2;
+                    return -ETIME;
                 }
             } while (oasis_wait_for_ack(fd) == -1);
 
             commBuffer[0] = ENQ;
-            bytes_written = write_serial(fd, commBuffer, 1);
+
+            if (write_serial(fd, commBuffer, 1) != 1) {
+                printf("Error writing to serial port.\n");
+            }
             oasis_wait_for_ack(fd);
 
             printf("\nStart of file transfer\n");
@@ -219,7 +226,7 @@ int main(int argc, char *argv[]) {
             oasis_send_packet(fd, (uint8_t *)pDirEntry, sizeof(directory_entry_block_t), OPEN);
             oasis_wait_for_ack(fd);
 
-            if (pDirEntry->file_format != FILE_FORMAT_SEQUENTIAL) {
+            if (pDirEntry->file_format == FILE_FORMAT_DIRECT) {
                 while ((bytes_read = (uint32_t)fread(&decoded_buf, 1, BLOCK_SIZE, istream))) {
                     oasis_send_packet(fd, decoded_buf, (uint16_t)bytes_read, WRITE);
                     oasis_wait_for_ack(fd);
@@ -227,18 +234,20 @@ int main(int argc, char *argv[]) {
             } else { /* Sequential File */
                 uint16_t sector_cnt = 1;
 
-                for (int bytes_sent = 0; bytes_sent <= send_len; bytes_sent += BLOCK_SIZE - 2) {
-                    printf("\rSegment: %d", sector_cnt);
-                    memcpy(decoded_buf, &sequential_buf[bytes_sent], BLOCK_SIZE - 2);
-                    decoded_buf[BLOCK_SIZE - 2] = sector_cnt >> 8;
-                    decoded_buf[BLOCK_SIZE - 1] = sector_cnt & 0xFF;
-                    oasis_send_packet(fd, decoded_buf, BLOCK_SIZE, WRITE);
-                    oasis_wait_for_ack(fd);
-                    sector_cnt++;
+                if (sequential_buf != NULL) {
+                    for (int bytes_sent = 0; bytes_sent <= send_len; bytes_sent += BLOCK_SIZE - 2) {
+                        printf("\rSegment: %d", sector_cnt);
+                        memcpy(decoded_buf, &sequential_buf[bytes_sent], BLOCK_SIZE - 2);
+                        decoded_buf[BLOCK_SIZE - 2] = sector_cnt >> 8;
+                        decoded_buf[BLOCK_SIZE - 1] = sector_cnt & 0xFF;
+                        oasis_send_packet(fd, decoded_buf, BLOCK_SIZE, WRITE);
+                        oasis_wait_for_ack(fd);
+                        sector_cnt++;
+                    }
                 }
-                free(sequential_buf);
             }
 
+            if (sequential_buf != NULL) free(sequential_buf);
             fclose(istream);
 
             oasis_send_packet(fd, NULL, 0, CLOSE);
@@ -249,7 +258,10 @@ int main(int argc, char *argv[]) {
 
     commBuffer[0] = DLE;
     commBuffer[1] = EOT;
-    bytes_written = write_serial(fd, commBuffer, 2);
+
+    if (write_serial(fd, commBuffer, 2) != 2) {
+        printf("Error writing to serial port.\n");
+    }
     printf("End of Transmission\n");
 
     /* Close the serial port */
