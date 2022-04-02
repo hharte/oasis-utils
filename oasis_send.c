@@ -128,7 +128,11 @@ int main(int argc, char *argv[]) {
                     file_len = ftell(istream);
                     fseek(istream, 0, SEEK_SET);
 
-                    pDirEntry->record_count           = (file_len + (frec_len - 1)) / frec_len;
+                    if (frec_len > 0) {
+                        pDirEntry->record_count = (file_len + (frec_len - 1)) / frec_len;
+                    } else {
+                        printf("Error: frec_len = 0!\n");
+                    }
                     pDirEntry->block_count            = (file_len + 1023) / 1024;
                     pDirEntry->file_format_dependent1 = frec_len;
                     pDirEntry->file_format_dependent2 = 0;
@@ -312,6 +316,9 @@ int parse_args(int argc, char *argv[], oasis_send_args_t *args) {
 int check_regular_file(const char *path) {
     struct stat path_stat;
 
-    stat(path, &path_stat);
+    if (0 != stat(path, &path_stat)) {
+        printf("stat() error.\n");
+        return -1;
+    }
     return S_ISREG(path_stat.st_mode);
 }

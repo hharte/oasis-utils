@@ -72,6 +72,7 @@ void oasis_list_dir_entry(directory_entry_block_t *dir_entry) {
     char fext[FEXT_LEN + 1];
     char format[8];
     char other_str[8];
+    char tmp_str[FNAME_LEN + 1];
     struct tm tmout;
     char buf[17];
 
@@ -79,8 +80,11 @@ void oasis_list_dir_entry(directory_entry_block_t *dir_entry) {
         return;
     }
 
-    snprintf(fname,     sizeof(fname),     "%s", dir_entry->file_name);
-    snprintf(fext,      sizeof(fext),      "%s", dir_entry->file_type);
+    memcpy(tmp_str, dir_entry->file_name, FNAME_LEN);
+    tmp_str[8] = '\0';
+    snprintf(fname, sizeof(fname), "%s", tmp_str);
+    memcpy(tmp_str, dir_entry->file_type, FEXT_LEN);
+    snprintf(fext,      sizeof(fext),      "%s", tmp_str);
     snprintf(other_str, sizeof(other_str), "       ");
 
     switch (dir_entry->file_format) {
@@ -142,15 +146,15 @@ void oasis_list_dir_entry(directory_entry_block_t *dir_entry) {
                     snprintf(format,
                              sizeof(format),
                              "I%3d/%3d",
-                             dir_entry->file_format_dependent1 & 0x1F,
-                             (dir_entry->file_format_dependent1 & 0xFE) >> 9);
+                             dir_entry->file_format_dependent1  & 0x01FF,
+                             (dir_entry->file_format_dependent1 & 0xFE00) >> 9);
                     break;
                 case FILE_FORMAT_KEYED:
                     snprintf(format,
                              sizeof(format),
                              "K%3d/%3d",
-                             dir_entry->file_format_dependent1 & 0x1F,
-                             (dir_entry->file_format_dependent1 & 0xFE) >> 9);
+                             dir_entry->file_format_dependent1  & 0x01FF,
+                             (dir_entry->file_format_dependent1 & 0xFE00) >> 9);
                     break;
                 default:
                     printf("Unsupported file type %x\n", dir_entry->file_format);

@@ -35,11 +35,11 @@ typedef struct oasis_args {
 
 
 /* Function prototypes */
-int parse_args(int argc, char         *argv[], oasis_args_t *args);
+int parse_args(int argc, char *argv[], oasis_args_t *args);
 int oasis_read_dir_entries(FILE                    *stream,
                            directory_entry_block_t *dir_entries,
                            int                      dir_block_cnt,
-                           int                      dir_entries_max);
+                           size_t                   dir_entries_max);
 int oasis_extract_file(directory_entry_block_t *dir_entry,
                        FILE                    *instream,
                        char                    *path,
@@ -55,13 +55,14 @@ int main(int argc, char *argv[]) {
     directory_entry_block_t *dir_entry_list = NULL;
     filesystem_block_t fs_block;
     oasis_args_t args;
-    int positional_arg_cnt;
-    int dir_entries_max;
-    int dir_entry_cnt;
-    int i;
-    int result;
-    int extracted_file_count = 0;
-    int status               = 0;
+    size_t dir_entries_max;
+    char   label[FNAME_LEN + 1];
+    int    positional_arg_cnt;
+    int    dir_entry_cnt;
+    int    i;
+    int    result;
+    int    extracted_file_count = 0;
+    int    status               = 0;
 
     positional_arg_cnt = parse_args(argc, argv, &args);
 
@@ -102,21 +103,29 @@ int main(int argc, char *argv[]) {
         goto exit_main;
     }
 
-    char label[FNAME_LEN + 1];
+    dir_entries_max = (size_t)(fs_block.dir_entries_max) * 8;
+
+    if (dir_entries_max > 2048) {
+        fprintf(stderr, "dir_entries_max is invalid.\n");
+        status = -EIO;
+        goto exit_main;
+    }
 
     snprintf(label, sizeof(label), "%s", fs_block.label);
-
-    dir_entries_max = fs_block.dir_entries_max * 8;
 
     printf("Label: %s\n", label);
     printf("%d-%d-%d\n",
            fs_block.num_cyl,
            fs_block.num_heads >> 4,
            fs_block.num_sectors);
-    printf("%d directory entries\n", dir_entries_max);
-    printf("%dK free\n",             fs_block.free_blocks);
+    printf("%zu directory entries\n", dir_entries_max);
+    printf("%dK free\n",              fs_block.free_blocks);
 
-    fseek(instream, 512, SEEK_SET);
+    if (0 != fseek(instream, 512, SEEK_SET)) {
+        printf("Error seeking input stream.\n");
+        fclose(instream);
+        return -EIO;
+    }
 
     dir_entry_list =
         (directory_entry_block_t *)calloc(dir_entries_max,
@@ -228,10 +237,10 @@ int parse_args(int argc, char *argv[], oasis_args_t *args) {
 int oasis_read_dir_entries(FILE                    *stream,
                            directory_entry_block_t *dir_entries,
                            int                      dir_block_cnt,
-                           int                      dir_entries_max) {
+                           size_t                   dir_entries_max) {
     int dir_entry_index = 0;
 
-    for (int i = 0; i < dir_entries_max; i++) {
+    for (size_t i = 0; i < dir_entries_max; i++) {
         size_t readlen;
         directory_entry_block_t *dir_entry = &dir_entries[dir_entry_index];
         readlen = fread(dir_entry, sizeof(directory_entry_block_t), 1, stream);
@@ -359,13 +368,29 @@ int oasis_extract_file(directory_entry_block_t *dir_entry,
         printf("Error Openening %s\n", output_filename);
         return -ENOENT;
     } else if ((file_buf = (uint8_t *)calloc(1, file_len))) {
-        fseek(instream, file_offset, SEEK_SET);
+        if (0 != fseek(instream, file_offset, SEEK_SET)) {
+            printf("Error seeking input stream.\n");
+            free(file_buf);
+            fclose(ostream);
+            return -EIO;
+        }
 
         if (file_format != FILE_FORMAT_SEQUENTIAL) {
             /* For all file types except sequential, copy the entire file in one
                shot (the file is contiguous) */
-            fread(file_buf, file_len, 1, instream);
-            fwrite(file_buf, file_len, 1, ostream);
+            if (fread(file_buf, file_len, 1, instream) == 1) {
+                if (fwrite(file_buf, file_len, 1, ostream) != 1) {
+                    printf("Error writing output stream.\n");
+                    free(file_buf);
+                    fclose(ostream);
+                    return -EIO;
+                } else {}
+            } else {
+                printf("Error reading input stream.\n");
+                free(file_buf);
+                fclose(ostream);
+                return -EIO;
+            }
         } else {
             uint16_t link = 0;
 
@@ -376,7 +401,13 @@ int oasis_extract_file(directory_entry_block_t *dir_entry,
                 char *text_ptr                 = text_buf;
                 int   text_len;
                 int   i;
-                fread(file_buf, BLOCK_SIZE, 1, instream);
+
+                if (fread(file_buf, BLOCK_SIZE, 1, instream) != 1) {
+                    printf("Error reading input stream.\n");
+                    free(file_buf);
+                    fclose(ostream);
+                    return -EIO;
+                }
                 link  = file_buf[BLOCK_SIZE - 1] << 8;
                 link |= file_buf[BLOCK_SIZE - 2];
 
@@ -409,7 +440,12 @@ int oasis_extract_file(directory_entry_block_t *dir_entry,
                 }
 
                 file_offset = link * BLOCK_SIZE;
-                fseek(instream, file_offset, SEEK_SET);
+
+                if (0 != fseek(instream, file_offset, SEEK_SET)) {
+                    free(file_buf);
+                    fclose(ostream);
+                    return -EIO;
+                }
             } while (link != 0);
         }
 
@@ -431,5 +467,6 @@ int oasis_extract_file(directory_entry_block_t *dir_entry,
     }
 
     printf("Memory allocation of %d bytes failed\n", file_len);
+    fclose(ostream);
     return -ENOMEM;
 }

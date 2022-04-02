@@ -116,8 +116,9 @@ int oasis_send_packet(int fd, uint8_t *buf, uint16_t len, uint8_t cmd) {
     uint8_t  commBuffer[1024];
     uint8_t  decoded_buf[512] = { 0 };
     uint16_t encoded_len;
+
 #ifdef DEBUG_SEND
-    uint8_t  cksum;
+    uint8_t cksum;
     printf("Sending %d bytes, cmd='%c'\n", len, cmd);
 #endif /* DEBUG_SEND */
 
