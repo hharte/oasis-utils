@@ -9,4 +9,5 @@ oasis_recv
 oasis_send
 out/
 .vs/
+.vscode/
 *.a
