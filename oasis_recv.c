@@ -84,7 +84,7 @@ int main(int argc, char *argv[]) {
         return -ENOENT;
     }
 
-    if (init_serial(fd, 9600) != 0) {
+    if (init_serial(fd, 19200) != 0) {
         printf("Error initializing %s.\n", args.port_path);
         return -EIO;
     }

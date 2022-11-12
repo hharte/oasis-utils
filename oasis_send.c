@@ -21,6 +21,7 @@
 # include <errno.h>
 #endif /* _WIN32 */
 
+#include <ctype.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -82,7 +83,7 @@ int main(int argc, char *argv[]) {
         return -ENOENT;
     }
 
-    if (init_serial(fd, 9600) != 0) {
+    if (init_serial(fd, 19200) != 0) {
         printf("Error initializing %s.\n", args.port_path);
         return -EIO;
     }
@@ -104,12 +105,17 @@ int main(int argc, char *argv[]) {
             send_filename[sizeof(send_filename) - 1] = '\0';
 
             for (size_t i = 0; i < strlen(send_filename); i++) {
+                send_filename[i] = toupper(send_filename[i]);
                 if ((send_filename[i] == '.') || (send_filename[i] == '_')) {
                     send_filename[i] = ' ';
                 }
             }
 
-            num_filled = sscanf(send_filename, "%8s %8s %c %hu", fname_str, ftype_str, &ffmt, &frec_len);
+            num_filled = sscanf(send_filename, "%s %s %c %hu", fname_str, ftype_str, &ffmt, &frec_len);
+
+            sprintf(fname_str, "%-8s", fname_str);
+            sprintf(ftype_str, "%-8s", ftype_str);
+
 
             if (num_filled < 4) {
                 ffmt     = 'S';
