@@ -165,6 +165,24 @@ local function decode_oasis_timestamp_to_str(tvb_range)
     return string.format("%02d/%02d/%02d %02d:%02d", mon, day, year % 100, hour, min)
 end
 
+-- Helper function to create a printable string representation of a TVB range
+-- Replaces non-printable characters with '.'
+-- Does not stop at null characters.
+local function tvb_to_printable_string_full(tvb_range)
+    if not tvb_range then return "" end
+    local str_tbl = {}
+    for i = 0, tvb_range:len() - 1 do
+        local byte = tvb_range(i, 1):uint()
+        if byte >= 32 and byte <= 126 then -- Printable ASCII range
+            table.insert(str_tbl, string.char(byte))
+        else
+            table.insert(str_tbl, ".") -- Replace non-printable with period
+        end
+    end
+    return table.concat(str_tbl)
+end
+
+
 local function decode_oasis_payload_to_tvb(raw_payload_tvb, pinfo, tree_node)
     local byte_accumulator = {}
     local current_shift_state = 0
@@ -387,7 +405,8 @@ function oasis_proto.dissector(tvb, pinfo, tree)
                                 if decoded_payload_tvbr:len() > 0 then
                                     packet_node:add(pf.packet_payload_decoded_bytes, decoded_payload_tvbr())
                                     if cmd_val ~= string.byte('O') then -- Don't show string repr for DEB in OPEN
-                                        packet_node:add(pf.packet_payload_decoded_str, decoded_payload_tvbr())
+                                        -- Use the new helper for printable string representation
+                                        packet_node:add(pf.packet_payload_decoded_str, tvb_to_printable_string_full(decoded_payload_tvbr()))
                                     end
                                 elseif cmd_val ~= string.byte('O') then
                                      packet_node:add(pf.packet_payload_decoded_bytes, decoded_payload_tvbr())
