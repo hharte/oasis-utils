@@ -6,9 +6,6 @@
 -- Protocol Definition
 local oasis_proto = Proto("OASIS", "OASIS File Transfer Protocol")
 
---[[
-Constants based on oasis.h and oasis_sendrecv.h
---]]
 
 -- File Format Types
 local FILE_FORMAT_RELOCATABLE     = 0x01
@@ -44,6 +41,7 @@ local SO  = 0x0E
 local VT  = 0x0B -- Used for RLE count
 local CAN = 0x18 -- DLE+CAN represents ESC
 local ESC = 0x1B
+local SUB = 0x1A -- Substitute (Used as EOF marker in ASCII mode text files)
 local RUB = 0x7F -- Expected final byte after LRC
 
 -- Helper table for command names
@@ -52,6 +50,39 @@ local command_names = {
     [string.byte('W')] = "WRITE",
     [string.byte('C')] = "CLOSE"
 }
+
+-- Define names for source/destination entities
+local SENDER_ENTITY_NAME = "oasis_send"
+local RECEIVER_ENTITY_NAME = "oasis_recv"
+
+-- Global state for the currently active file transfer (for sequential processing)
+local current_file_state = {
+    file_name_str = nil,
+    is_sequential = false,
+    transient_write_count = 0, -- Used for calculating sequence during initial pass
+    total_payload_bytes_written = 0,
+    total_records_in_file = 0
+}
+
+-- Global cache for storing calculated write sequence details per frame
+-- Key: frame_number, Value: {file_name = "...", seq_num = N, total_recs = T, is_seq = true/false}
+local frame_write_details_cache = {}
+
+-- Function to reset the current file state (and transient counters for cache building)
+local function reset_current_file_state_and_transient_counters()
+    current_file_state.file_name_str = nil
+    current_file_state.is_sequential = false
+    current_file_state.transient_write_count = 0 -- Reset for the new file context
+    current_file_state.total_payload_bytes_written = 0
+    current_file_state.total_records_in_file = 0
+end
+
+-- Dissector's init function, called when script is loaded/reloaded
+function oasis_proto.init()
+    frame_write_details_cache = {} -- Clear cache on script load/reload
+    reset_current_file_state_and_transient_counters()
+end
+
 
 -- Protocol Fields Definition
 local pf = {
@@ -68,12 +99,15 @@ local pf = {
     packet_cmd = ProtoField.uint8("oasis.packet.cmd", "Command", base.ASCII, command_names),
     packet_payload_raw_stuffed = ProtoField.bytes("oasis.packet.payload_raw_stuffed", "Payload (Raw/Stuffed)", base.NONE),
     packet_payload_decoded_bytes = ProtoField.bytes("oasis.packet.payload_decoded.bytes", "Payload (Decoded Bytes)", base.NONE),
-    packet_payload_decoded_str = ProtoField.string("oasis.packet.payload_decoded.str_repr", "Payload (Decoded String Representation)"),
     packet_payload_seq_link = ProtoField.uint16("oasis.packet.payload.seq_link", "Sequential Next Sector Link", base.DEC_HEX, nil, nil, "Link in WRITE payload", ftypes.LITTLE_ENDIAN),
     packet_trailer_dle_etx = ProtoField.bytes("oasis.packet.trailer_dle_etx", "Trailer (DLE ETX)", base.NONE),
     packet_lrc_received = ProtoField.uint8("oasis.packet.lrc.received", "LRC (Received)", base.HEX),
     packet_lrc_calculated = ProtoField.uint8("oasis.packet.lrc.calculated", "LRC (Calculated)", base.HEX),
     packet_final_rub_byte = ProtoField.uint8("oasis.packet.final_rub_byte", "Final Byte (Padding)", base.HEX),
+
+    packet_current_filename = ProtoField.string("oasis.packet.current_file", "Current File"),
+    packet_write_segment = ProtoField.uint32("oasis.packet.write_segment", "Write Segment/Record #"),
+    packet_total_bytes_transferred = ProtoField.uint32("oasis.packet.total_bytes_transferred", "Total Payload Bytes Transferred for File", base.DEC),
 
     deb_file_format_raw = ProtoField.uint8("oasis.deb.file_format.raw", "File Format (Raw Byte)", base.HEX),
     deb_file_format_type = ProtoField.uint8("oasis.deb.file_format.type", "File Format Type", base.HEX, {
@@ -164,6 +198,17 @@ local function decode_oasis_timestamp_to_str(tvb_range)
     local year = year_offset + 1977
     return string.format("%02d/%02d/%02d %02d:%02d", mon, day, year % 100, hour, min)
 end
+
+local function tvb_to_printable_string_full(tvb_range)
+    if not tvb_range then return "" end
+    local str_tbl = {}
+    for i = 0, tvb_range:len() - 1 do
+        local byte = tvb_range(i, 1):uint()
+        table.insert(str_tbl, string.char(byte)) -- Directly convert byte to char
+    end
+    return table.concat(str_tbl)
+end
+
 
 local function decode_oasis_payload_to_tvb(raw_payload_tvb, pinfo, tree_node)
     local byte_accumulator = {}
@@ -262,6 +307,7 @@ local function decode_oasis_payload_to_tvb(raw_payload_tvb, pinfo, tree_node)
     end
 end
 
+
 --------------------------------------------------------------------------------
 -- Main Dissector Function
 --------------------------------------------------------------------------------
@@ -288,8 +334,14 @@ function oasis_proto.dissector(tvb, pinfo, tree)
     local first_byte_val = data_tvb(0, 1):uint()
     local consumed_len = 0
 
+    -- Set default Source/Destination, can be overridden by specific message types
+    pinfo.cols.src = "?"
+    pinfo.cols.dst = "?"
+
     if first_byte_val == ENQ and data_len >= 1 then
         pinfo.cols.info:set("ENQ Signal")
+        pinfo.cols.src = SENDER_ENTITY_NAME
+        pinfo.cols.dst = RECEIVER_ENTITY_NAME
         subtree:add(pf.msg_type, data_tvb(0,1)):set_text("Type: ENQ")
         subtree:add(pf.enq, data_tvb(0, 1))
         consumed_len = 1
@@ -298,23 +350,30 @@ function oasis_proto.dissector(tvb, pinfo, tree)
         if second_byte_val == string.byte('0') or second_byte_val == string.byte('1') then
             local toggle_val = second_byte_val - string.byte('0')
             pinfo.cols.info:set("ACK (Toggle " .. toggle_val .. ")")
+            pinfo.cols.src = RECEIVER_ENTITY_NAME
+            pinfo.cols.dst = SENDER_ENTITY_NAME
             subtree:add(pf.msg_type, data_tvb(0,2)):set_text("Type: ACK")
             local ack_node = subtree:add(pf.ack_raw, data_tvb(0, 2))
             ack_node:add(pf.ack_toggle, data_tvb(1, 1))
             consumed_len = 2
         elseif second_byte_val == EOT then
             pinfo.cols.info:set("EOT Signal")
+            pinfo.cols.src = SENDER_ENTITY_NAME
+            pinfo.cols.dst = RECEIVER_ENTITY_NAME
             subtree:add(pf.msg_type, data_tvb(0,2)):set_text("Type: EOT")
             subtree:add(pf.eot, data_tvb(0, 2))
             consumed_len = 2
+            reset_current_file_state_and_transient_counters()
         elseif second_byte_val == STX then
-            if data_len < 7 then
+             pinfo.cols.src = SENDER_ENTITY_NAME
+             pinfo.cols.dst = RECEIVER_ENTITY_NAME
+            if data_len < 7 then -- Minimum DLE STX CMD DLE ETX LRC RUB
                 pinfo.cols.info:set("Data Packet (Too Short)")
                 subtree:add(pf.msg_type, data_tvb:range(0,0)):set_text("Type: Data Packet (Malformed - Too Short)")
                 subtree:add(pf.packet_raw_data, data_tvb)
                 consumed_len = data_len
             else
-                pinfo.cols.info:set("Data Packet")
+                pinfo.cols.info:set("Data Packet") -- Base info, will be refined
                 subtree:add(pf.msg_type, data_tvb:range(0,0)):set_text("Type: Data Packet")
 
                 local packet_node = subtree:add(pf.packet_raw_data, data_tvb)
@@ -323,9 +382,72 @@ function oasis_proto.dissector(tvb, pinfo, tree)
                 local cmd_val = data_tvb(2, 1):uint()
                 local cmd_char = string.char(cmd_val)
                 local cmd_name = command_names[cmd_val] or "Unknown"
-                
+
                 packet_node:add(pf.packet_cmd, data_tvb(2, 1))
-                pinfo.cols.info:append(" Cmd: " .. cmd_name .." (" .. cmd_char .. ")")
+                local cmd_info_str = "Cmd: " .. cmd_name .." (" .. cmd_char .. ")"
+
+                if cmd_val == string.byte('O') then
+                    reset_current_file_state_and_transient_counters()
+                end
+
+                -- File name is set during OPEN payload processing, so handle it there for info column
+                -- For WRITE/CLOSE, current_file_state.file_name_str should already be set.
+                if current_file_state.file_name_str and cmd_val ~= string.byte('O') then
+                    cmd_info_str = cmd_info_str .. ", File: " .. current_file_state.file_name_str
+                    packet_node:add(pf.packet_current_filename, current_file_state.file_name_str)
+                end
+
+                if cmd_val == string.byte('W') then
+                    local write_display_label = "Record"
+                    local write_display_count_str = "?"
+                    local actual_seq_num_for_tree = 0
+
+                    local cached_detail = frame_write_details_cache[pinfo.number]
+                    local use_cache = false
+                    if cached_detail and cached_detail.file_name == current_file_state.file_name_str then
+                        use_cache = true
+                    end
+
+                    if not pinfo.visited or not use_cache then
+                        current_file_state.transient_write_count = current_file_state.transient_write_count + 1
+                        actual_seq_num_for_tree = current_file_state.transient_write_count
+
+                        frame_write_details_cache[pinfo.number] = {
+                            file_name = current_file_state.file_name_str,
+                            seq_num = actual_seq_num_for_tree,
+                            total_recs = current_file_state.total_records_in_file,
+                            is_seq = current_file_state.is_sequential
+                        }
+                        if current_file_state.is_sequential then
+                            write_display_label = "Seq Write"
+                            write_display_count_str = tostring(actual_seq_num_for_tree)
+                        else
+                            write_display_label = "Record"
+                            if current_file_state.total_records_in_file > 0 then
+                                write_display_count_str = string.format("%d / %d", actual_seq_num_for_tree, current_file_state.total_records_in_file)
+                            else
+                                write_display_count_str = tostring(actual_seq_num_for_tree)
+                            end
+                        end
+                    else
+                        actual_seq_num_for_tree = cached_detail.seq_num
+                        if cached_detail.is_seq then
+                            write_display_label = "Seq Write"
+                            write_display_count_str = tostring(cached_detail.seq_num)
+                        else
+                            write_display_label = "Record"
+                            if cached_detail.total_recs > 0 then
+                                write_display_count_str = string.format("%d / %d", cached_detail.seq_num, cached_detail.total_recs)
+                            else
+                                write_display_count_str = tostring(cached_detail.seq_num)
+                            end
+                        end
+                    end
+
+                    cmd_info_str = cmd_info_str .. ", " .. write_display_label .. " #: " .. write_display_count_str
+                end
+                
+                pinfo.cols.info:set("Data Packet, " .. cmd_info_str)
 
 
                 local trailer_start_offset = -1
@@ -334,25 +456,27 @@ function oasis_proto.dissector(tvb, pinfo, tree)
                     local pcall_k1_status, k1_byte_val = pcall(function() return data_tvb(k+1,1):uint() end)
 
                     if pcall_k_status and pcall_k1_status and k_byte_val == DLE and k1_byte_val == ETX then
-                        local is_escaped_dle_etx = false
+                        local is_actual_trailer = true
                         if k > 0 then
-                            local pcall_prev_status, prev_byte_val = pcall(function() return data_tvb(k-1,1):uint() end)
-                            if pcall_prev_status and prev_byte_val == DLE then
+                            local pcall_prev_status, prev_byte_val_check = pcall(function() return data_tvb(k-1,1):uint() end)
+                            if pcall_prev_status and prev_byte_val_check == DLE then
                                 local dle_count = 0
                                 local temp_idx = k - 1
                                 while temp_idx >= 0 do
-                                    local pcall_temp_status, temp_byte_val = pcall(function() return data_tvb(temp_idx,1):uint() end)
-                                    if pcall_temp_status and temp_byte_val == DLE then
+                                    local pcall_temp_status, temp_byte_val_inner = pcall(function() return data_tvb(temp_idx,1):uint() end)
+                                    if pcall_temp_status and temp_byte_val_inner == DLE then
                                         dle_count = dle_count + 1
                                         temp_idx = temp_idx - 1
                                     else
                                         break
                                     end
                                 end
-                                if dle_count % 2 == 1 then is_escaped_dle_etx = true end
+                                if dle_count % 2 == 1 then
+                                    is_actual_trailer = false
+                                end
                             end
                         end
-                        if not is_escaped_dle_etx then
+                        if is_actual_trailer then
                             trailer_start_offset = k
                             break
                         end
@@ -367,40 +491,55 @@ function oasis_proto.dissector(tvb, pinfo, tree)
                     local raw_payload_len = trailer_start_offset - 3
 
                     if cmd_val == string.byte('C') then
+                        if current_file_state.file_name_str then
+                           pinfo.cols.info:set(string.format("Data Packet, Cmd: CLOSE (C), File: %s, length: %d bytes", current_file_state.file_name_str, current_file_state.total_payload_bytes_written))
+                        else -- Should ideally not happen if OPEN was processed
+                           pinfo.cols.info:set(string.format("Data Packet, Cmd: CLOSE (C), length: %d bytes", current_file_state.total_payload_bytes_written))
+                        end
+
+                        local payload_node = packet_node:add(oasis_proto, data_tvb:range(3,0), "Payload Details")
                         if raw_payload_len == 0 then
-                            packet_node:add(pf.packet_payload_raw_stuffed, data_tvb:range(3,0))
+                            payload_node:add(pf.packet_payload_raw_stuffed, data_tvb:range(3,0))
                                 :set_text("Payload: (Empty - Normal for CLOSE)")
                         else
                             local unexpected_payload_tvbr = data_tvb:range(3, raw_payload_len)
-                            packet_node:add(pf.packet_payload_raw_stuffed, unexpected_payload_tvbr)
+                            payload_node:add(pf.packet_payload_raw_stuffed, unexpected_payload_tvbr)
                                 :append_text(" (ERROR: Unexpected payload for CLOSE command)")
                             pinfo:expert(expert_info.payload_decode_error, unexpected_payload_tvbr, "CLOSE packet has unexpected payload data")
                         end
-                    elseif raw_payload_len >= 0 then -- For OPEN, WRITE, etc.
+                        
+                        if current_file_state.file_name_str and current_file_state.total_payload_bytes_written > 0 then
+                            local summary_item = packet_node:add(pf.packet_total_bytes_transferred, current_file_state.total_payload_bytes_written)
+                            summary_item:set_text(string.format("File Summary: %d bytes transferred", current_file_state.total_payload_bytes_written))
+                        end
+                        reset_current_file_state_and_transient_counters()
+
+                    elseif raw_payload_len >= 0 then -- For OPEN and WRITE
                         local raw_payload_tvbr = data_tvb:range(3, raw_payload_len)
+                        local payload_node = packet_node:add(oasis_proto, raw_payload_tvbr, "Payload Details")
 
                         if raw_payload_len > 0 then
-                            packet_node:add(pf.packet_payload_raw_stuffed, raw_payload_tvbr)
-                            local decoded_payload_tvbr, decode_err = decode_oasis_payload_to_tvb(raw_payload_tvbr, pinfo, packet_node)
+                            payload_node:add(pf.packet_payload_raw_stuffed, raw_payload_tvbr)
+                            local decoded_payload_tvbr, decode_err = decode_oasis_payload_to_tvb(raw_payload_tvbr, pinfo, payload_node)
 
                             if decoded_payload_tvbr then
-                                if decoded_payload_tvbr:len() > 0 then
-                                    packet_node:add(pf.packet_payload_decoded_bytes, decoded_payload_tvbr())
-                                    if cmd_val ~= string.byte('O') then -- Don't show string repr for DEB in OPEN
-                                        packet_node:add(pf.packet_payload_decoded_str, decoded_payload_tvbr())
-                                    end
+                                local decoded_len_for_sum = decoded_payload_tvbr:len()
+                                if decoded_len_for_sum > 0 then
+                                    payload_node:add(pf.packet_payload_decoded_bytes, decoded_payload_tvbr())
                                 elseif cmd_val ~= string.byte('O') then
-                                     packet_node:add(pf.packet_payload_decoded_bytes, decoded_payload_tvbr())
+                                     payload_node:add(pf.packet_payload_decoded_bytes, decoded_payload_tvbr())
                                          :set_text("Payload (Decoded Bytes): (Empty after RLE/DLE processing)")
                                 end
 
                                 if cmd_val == string.byte('O') then
                                     if decoded_payload_tvbr:len() >= 32 then
                                         local deb_tvbr = decoded_payload_tvbr:range(0, 32)
-                                        local deb_node = packet_node:add(oasis_proto, deb_tvbr, "Directory Entry Block (DEB)")
+                                        local deb_node = payload_node:add(oasis_proto, deb_tvbr, "Directory Entry Block (DEB)")
                                         deb_node:add(pf.deb_file_format_raw, deb_tvbr:range(0,1))
                                         local ff_raw = deb_tvbr(0,1):uint()
                                         local ff_type_val = bit.band(ff_raw, FILE_FORMAT_MASK)
+                                        current_file_state.is_sequential = (ff_type_val == FILE_FORMAT_SEQUENTIAL)
+
                                         local ff_attr_raw = bit.band(ff_raw, FILE_ATTRIBUTE_MASK)
                                         local attr_str = ""
                                         if bit.band(ff_attr_raw, FILE_ATTRIBUTE_READ_PROTECTED)   ~= 0 then attr_str = attr_str .. "R" end
@@ -418,9 +557,36 @@ function oasis_proto.dissector(tvb, pinfo, tree)
                                             pinfo:expert(expert_info.invalid_deb_file_format, deb_tvbr:range(0,1))
                                         end
 
-                                        deb_node:add(pf.deb_file_name_str, deb_tvbr:range(1, FNAME_LEN))
-                                        deb_node:add(pf.deb_file_type_str, deb_tvbr:range(1 + FNAME_LEN, FTYPE_LEN))
+                                        local deb_fname_tvb = deb_tvbr:range(1, FNAME_LEN)
+                                        local deb_ftype_tvb = deb_tvbr:range(1 + FNAME_LEN, FTYPE_LEN)
+                                        deb_node:add(pf.deb_file_name_str, deb_fname_tvb)
+                                        deb_node:add(pf.deb_file_type_str, deb_ftype_tvb)
+
+                                        local fname_part = string.gsub(deb_fname_tvb:string(), "%s*$", "")
+                                        local ftype_part = string.gsub(deb_ftype_tvb:string(), "%s*$", "")
+                                        if ftype_part == "" then
+                                            current_file_state.file_name_str = fname_part
+                                        else
+                                            current_file_state.file_name_str = fname_part .. "." .. ftype_part
+                                        end
+
+                                        -- Update info column for OPEN command now that filename is known
+                                        local open_info_str = "Cmd: OPEN (O)"
+                                        if current_file_state.file_name_str then
+                                             open_info_str = open_info_str .. ", File: " .. current_file_state.file_name_str
+                                             packet_node:add(pf.packet_current_filename, current_file_state.file_name_str)
+                                        end
+                                        pinfo.cols.info:set("Data Packet, " .. open_info_str)
+
+
+                                        local pcall_status_rec_count, rec_count_val = pcall(function() return deb_tvbr(17,2):le_uint() end)
+                                        if pcall_status_rec_count then
+                                            current_file_state.total_records_in_file = rec_count_val
+                                        else
+                                            current_file_state.total_records_in_file = 0
+                                        end
                                         deb_node:add(pf.deb_record_count_val, deb_tvbr:range(17, 2))
+
                                         deb_node:add(pf.deb_block_count_val, deb_tvbr:range(19, 2))
                                         deb_node:add(pf.deb_start_sector_val, deb_tvbr:range(21, 2))
 
@@ -460,23 +626,33 @@ function oasis_proto.dissector(tvb, pinfo, tree)
                                         pinfo:expert(expert_info.open_payload_too_short, decoded_payload_tvbr())
                                     end
                                 elseif cmd_val == string.byte('W') then
-                                    if decoded_payload_tvbr and decoded_payload_tvbr:len() >= 2 then
-                                        local link_offset = decoded_payload_tvbr:len() - 2
-                                        packet_node:add(pf.packet_payload_seq_link, decoded_payload_tvbr:range(link_offset, 2))
-                                        pinfo.cols.info:append(", SeqLink: " .. decoded_payload_tvbr(link_offset, 2):le_uint())
+                                    local data_part_len_for_sum = decoded_len_for_sum
+                                    if current_file_state.is_sequential then
+                                        if decoded_len_for_sum >= 2 then
+                                            data_part_len_for_sum = decoded_len_for_sum - 2
+                                            local link_offset = decoded_payload_tvbr:len() - 2
+                                            payload_node:add(pf.packet_payload_seq_link, decoded_payload_tvbr:range(link_offset, 2))
+                                            -- Append SeqLink to info column only if it's a sequential WRITE
+                                            -- This is now handled by the main cmd_info_str logic for WRITE
+                                            -- but we need to append the value if it's a sequential write with link.
+                                            pinfo.cols.info:append(", SeqLink: " .. decoded_payload_tvbr(link_offset, 2):le_uint())
+                                        else
+                                            data_part_len_for_sum = 0
+                                        end
                                     end
+                                    current_file_state.total_payload_bytes_written = current_file_state.total_payload_bytes_written + data_part_len_for_sum
                                 end
                             else
                                 pinfo:expert(expert_info.payload_decode_error, raw_payload_tvbr, (decode_err or "Unknown decode error"))
                                 pinfo.cols.info:append(" [Payload Decode Error]")
                             end
-                        elseif cmd_val == string.byte('O') then
-                            packet_node:add(pf.packet_payload_raw_stuffed, raw_payload_tvbr)
+                        elseif cmd_val == string.byte('O') then -- Empty payload for OPEN
+                             payload_node:add(pf.packet_payload_raw_stuffed, raw_payload_tvbr)
                                 :set_text("Payload: (Empty - Invalid for OPEN)")
                             pinfo:expert(expert_info.open_payload_too_short, raw_payload_tvbr)
                             pinfo.cols.info:append(" [Empty Payload for OPEN]")
-                        else
-                             packet_node:add(pf.packet_payload_raw_stuffed, raw_payload_tvbr)
+                        else -- Empty payload for WRITE (if that's possible and not an error) or other commands
+                             payload_node:add(pf.packet_payload_raw_stuffed, raw_payload_tvbr)
                                 :set_text("Payload: (Empty)")
                         end
                     end
@@ -527,12 +703,16 @@ function oasis_proto.dissector(tvb, pinfo, tree)
             end
         else
             pinfo.cols.info:set("Unknown DLE Sequence")
+            pinfo.cols.src = "?"
+            pinfo.cols.dst = "?"
             subtree:add(pf.msg_type, data_tvb:range(0,0)):set_text("Type: Unknown DLE Sequence")
             subtree:add(pf.packet_raw_data, data_tvb)
             consumed_len = data_len
         end
     else
         pinfo.cols.info:set("Unknown/Invalid Data (Not ENQ or DLE-prefixed)")
+        pinfo.cols.src = "?"
+        pinfo.cols.dst = "?"
         subtree:add(pf.msg_type, data_tvb:range(0,0)):set_text("Type: Unknown/Invalid")
         subtree:add(pf.packet_raw_data, data_tvb)
         consumed_len = data_len
@@ -551,4 +731,4 @@ end
 local wtap_encap_table = DissectorTable.get("wtap_encap")
 wtap_encap_table:add(149, oasis_proto)
 
-print("OASIS Wireshark Dissector Loaded for LINKTYPE_USER2 (149)")
+print("OASIS Wireshark Dissector Loaded for LINKTYPE_USER2 (149) -- Production Version")
