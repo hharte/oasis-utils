@@ -1,0 +1,257 @@
+# Workflow name
+name: Create or Update Release, Build, Test, and Upload Assets
+
+# Trigger the workflow on push to main OR when a release is created
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [ created ]
+
+# Permissions needed to create releases and upload assets
+permissions:
+  contents: write # Needed for gh release commands
+
+jobs:
+  # This job only runs on push events to create the pre-release
+  prepare_release:
+    name: Create Pre-Release (on push)
+    # Conditionally run this job only if the event is 'push'
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      # Output the upload URL and the generated tag for the build job
+      upload_url: ${{ steps.get_upload_url.outputs.upload_url }} # Kept for potential future use
+      release_tag: ${{ steps.get_tag.outputs.tag }}
+    steps:
+      # --- Add Checkout Step ---
+      # Checkout the code so gh commands have repository context
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # Fetch depth 0 might be needed if gh relies on full history,
+        # but often not necessary just for context. Keep it minimal first.
+        # fetch-depth: 0
+
+      - name: Get Commit SHA for Tag
+        id: get_tag
+        # Create a tag name based on the commit SHA
+        run: echo "tag=commit-${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Pre-Release using GH CLI
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.get_tag.outputs.tag }}
+        run: |
+          echo "Creating pre-release for tag $TAG_NAME"
+          # Create the pre-release using the generated tag
+          # Use --repo to be explicit, reducing reliance on local .git context, but checkout is still best practice
+          gh release create "$TAG_NAME" \
+            --repo "${{ github.repository }}" \
+            --title "Pre-release (commit ${{ github.sha }})" \
+            --notes "Automated pre-release based on commit ${{ github.sha }}. Contains build artifacts for Linux, macOS, and Windows (x64/x86)." \
+            --prerelease # Mark it as a pre-release
+
+      # Get the upload URL (optional, but good practice if needed elsewhere)
+      - name: Get Release Upload URL
+        id: get_upload_url
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.get_tag.outputs.tag }}
+        run: |
+          echo "Getting upload URL for tag $TAG_NAME on repo ${{ github.repository }}"
+          # Use --repo explicitly here as well for robustness
+          upload_url=$(gh release view "$TAG_NAME" --repo "${{ github.repository }}" --json uploadUrl -q .uploadUrl)
+          echo "Upload URL: $upload_url"
+          echo "upload_url=$upload_url" >> $GITHUB_OUTPUT
+
+
+  # This job runs on both push and release events
+  build_test_upload:
+    name: Build, Test & Upload (${{ matrix.target_name }})
+    needs: [prepare_release]
+    # Run if dependencies succeeded OR if prepare_release was skipped (i.e., event was 'release')
+    if: success() || needs.prepare_release.result == 'skipped'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x64
+            target_name: Linux-x64
+            package_glob: '*.tar.gz'
+            cmake_arg: ''
+            shell_type: bash # Explicitly set shell for clarity
+          - os: macos-latest
+            arch: x64
+            target_name: macOS-x64
+            package_glob: '*.tar.gz'
+            cmake_arg: ''
+            shell_type: bash # Explicitly set shell for clarity
+          - os: windows-latest
+            arch: x64
+            target_name: Windows-x64
+            package_glob: '*.zip'
+            cmake_arg: ''
+            shell_type: pwsh # Explicitly set shell for clarity
+          - os: windows-latest
+            arch: x86
+            target_name: Windows-x86
+            package_glob: '*.zip'
+            cmake_arg: '-A Win32'
+            shell_type: pwsh # Explicitly set shell for clarity
+
+    # Set the default shell based on the matrix strategy
+    defaults:
+      run:
+        shell: ${{ matrix.shell_type }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Checkout the specific tag for release events, or the commit SHA for push events
+          ref: ${{ github.event_name == 'release' && github.ref || github.sha }}
+          fetch-depth: 0 # Fetch all history for CPack versioning if needed
+
+#      - name: Install socat (Linux)
+#        if: runner.os == 'Linux'
+#        run: |
+#          sudo apt-get update
+#          sudo apt-get install -y socat
+
+      - name: Install socat (macOS)
+        if: runner.os == 'macOS'
+        run: brew install socat
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_arg }}
+
+      - name: Build Project
+        run: cmake --build build --config Release
+
+      - name: Run Tests
+        working-directory: ./build
+        run: ctest -C Release --output-on-failure
+
+      - name: Package with CPack
+        working-directory: ./build
+        run: cpack -C Release
+
+      # --- Get Package Info ---
+      - name: Get Package Info & Set Env Vars (Linux/macOS)
+        # Only run this step on non-Windows runners
+        if: runner.os != 'Windows'
+        working-directory: ./build
+        run: |
+          # Find the package file using the glob pattern
+          asset_path=$(ls ${{ matrix.package_glob }})
+          echo "Found asset: $asset_path"
+          # Set environment variables for subsequent steps
+          echo "ASSET_PATH=${asset_path}" >> $GITHUB_ENV
+          echo "ASSET_NAME=${asset_path}" >> $GITHUB_ENV # Asset name is the filename
+
+      - name: Get Package Info & Set Env Vars (Windows)
+        # Only run this step on Windows runners
+        if: runner.os == 'Windows'
+        working-directory: ./build
+        # Use PowerShell syntax
+        run: |
+          # Find the package file using the glob pattern
+          $asset_info = Get-ChildItem -Filter "${{ matrix.package_glob }}" | Select-Object -First 1
+          if ($null -eq $asset_info) {
+            Write-Error "Could not find package file matching pattern: ${{ matrix.package_glob }}"
+            exit 1
+          }
+          $asset_path = $asset_info.Name
+          Write-Host "Found asset: $asset_path"
+          # Set environment variables using the PowerShell way to append to GITHUB_ENV
+          echo "ASSET_PATH=$asset_path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "ASSET_NAME=$asset_path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # --- Determine Release Tag ---
+      # Use separate steps for different shells to avoid syntax conflicts
+
+      - name: Set Release Tag Name (Linux/macOS)
+        # Only run this step on non-Windows runners
+        if: runner.os != 'Windows'
+        id: set_tag_non_windows
+        run: |
+          # Check if the event is a release event
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            # Use the actual tag name from the release event
+            echo "Using release tag: ${{ github.ref_name }}"
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            # Use the tag generated in the prepare_release job (from push event)
+            echo "Using pre-release tag: ${{ needs.prepare_release.outputs.release_tag }}"
+            echo "tag=${{ needs.prepare_release.outputs.release_tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set Release Tag Name (Windows)
+        # Only run this step on Windows runners
+        if: runner.os == 'Windows'
+        id: set_tag_windows
+        # Use PowerShell syntax
+        run: |
+          # Check if the event is a release event
+          if ("${{ github.event_name }}" -eq "release") {
+            # Use the actual tag name from the release event
+            Write-Host "Using release tag: ${{ github.ref_name }}"
+            echo "tag=${{ github.ref_name }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } else {
+            # Use the tag generated in the prepare_release job (from push event)
+            Write-Host "Using pre-release tag: ${{ needs.prepare_release.outputs.release_tag }}"
+            echo "tag=${{ needs.prepare_release.outputs.release_tag }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+
+      # Combine the outputs from the conditional tag steps
+      # This makes the tag available regardless of which OS ran
+      - name: Set Final Release Tag Output
+        id: set_tag # Use a consistent ID for the final output
+        # Set the output based on which OS-specific step ran
+        # Note: Only one of the 'if' conditions above will be true, so only one output will exist.
+        # Use bash shell explicitly for this step for consistency in the echo command
+        shell: bash
+        run: echo "tag=${{ steps.set_tag_non_windows.outputs.tag || steps.set_tag_windows.outputs.tag }}" >> $GITHUB_OUTPUT
+
+      # --- Upload Asset using GH CLI ---
+      # Split upload step for different shells
+
+      - name: Upload Release Asset via GH CLI (Linux/macOS)
+        # Only run this step on non-Windows runners
+        if: runner.os != 'Windows'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use the combined output from the 'set_tag' step
+          RELEASE_TAG: ${{ steps.set_tag.outputs.tag }}
+          # Construct the full path to the asset from the workspace root
+          ASSET_PATH: ./build/${{ env.ASSET_PATH }}
+          ASSET_NAME: ${{ env.ASSET_NAME }}
+        # Use Bash syntax
+        run: |
+          echo "Uploading asset $ASSET_NAME from path $ASSET_PATH to release $RELEASE_TAG"
+          # Upload the asset using the gh cli, overwriting if it already exists
+          # Use --repo explicitly for robustness
+          gh release upload "$RELEASE_TAG" "$ASSET_PATH" --repo "${{ github.repository }}" --clobber
+
+      - name: Upload Release Asset via GH CLI (Windows)
+        # Only run this step on Windows runners
+        if: runner.os == 'Windows'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use the combined output from the 'set_tag' step
+          RELEASE_TAG: ${{ steps.set_tag.outputs.tag }}
+          # Construct the full path to the asset from the workspace root
+          # Note: PowerShell uses backslashes for paths, but forward slashes often work here.
+          # Using Join-Path might be safer if issues arise.
+          ASSET_PATH: ./build/${{ env.ASSET_PATH }}
+          ASSET_NAME: ${{ env.ASSET_NAME }}
+        # Use PowerShell syntax, referencing env vars with $env:
+        run: |
+          $FullAssetPath = Join-Path $env:GITHUB_WORKSPACE "build" $env:ASSET_NAME
+          Write-Host "Uploading asset $($env:ASSET_NAME) from path $($FullAssetPath) to release $($env:RELEASE_TAG)"
+          # Upload the asset using the gh cli, overwriting if it already exists
+          # Use --repo explicitly for robustness
+          # Ensure variables are correctly expanded in the command string
+          gh release upload "$($env:RELEASE_TAG)" "$($FullAssetPath)" --repo "${{ github.repository }}" --clobber

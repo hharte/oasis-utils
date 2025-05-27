@@ -1,0 +1,49 @@
+.\" Man page for oasis_recv
+.TH OASIS_RECV 1 "2025-05-25" "OASIS UTILITIES" "User Commands"
+.SH NAME
+oasis_recv \- Receives files from an OASIS system onto the host system via a serial port.
+.SH SYNOPSIS
+.B oasis_recv
+.I port
+.RI [ output_dir ]
+.RI [ options ]
+.SH DESCRIPTION
+The
+.B oasis_recv
+utility receives files sent from an OASIS system over a serial connection. It implements the OASIS serial transfer protocol and creates output files on the host system based on the received OASIS directory information, using the host filename convention.
+.SH OPTIONS
+.TP
+.B -q
+Quiet mode. Suppresses non-essential output.
+.TP
+.B -d
+Debug mode. Provides verbose output for troubleshooting.
+.TP
+.B -a, --ascii
+ASCII mode. Converts received ASCII files to host line endings (received CR to host OS standard, SUB as EOF).
+.TP
+.B -f, --flow-control
+Disable Hardware (RTS/CTS) Flow Control (default: enabled).
+.TP
+.BI -b " rate"
+Baud rate (default: 19200).
+.TP
+.BI --pcap " file"
+Log raw serial communication to a PCAP file.
+.TP
+.BI --pacing-packet " ms"
+Delay in milliseconds after receiving each packet (before sending ACK).
+.SH SERIAL PROTOCOL
+The utility uses DLE stuffing, Shift-In/Out states for MSB, RLE compression, LRC checksums, and ENQ/ACK handshaking.
+.SH AUTHOR
+Written by Howard M. Harte.
+.SH REPORTING BUGS
+Report bugs at <https://github.com/hharte/oasis-utils/issues>
+.SH COPYRIGHT
+Copyright © 2021-2025 Howard M. Harte
+Licensed under the MIT License.
+.SH SEE ALSO
+.BR oasis_disk_util (1),
+.BR oasis_chkdsk (1),
+.BR oasis_initdisk (1),
+.BR oasis_send (1)

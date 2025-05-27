@@ -1,0 +1,43 @@
+.\" Man page for oasis_chkdsk
+.TH OASIS_CHKDSK 1 "2025-05-25" "OASIS UTILITIES" "User Commands"
+.SH NAME
+oasis_chkdsk \- Verifies the integrity of OASIS .img or .imd disk images.
+.SH SYNOPSIS
+.B oasis_chkdsk
+.I disk_image_path
+.RI [-f " pattern" ]
+.RI [-v|--verbose]
+.SH DESCRIPTION
+The
+.B oasis_chkdsk
+utility checks the integrity of OASIS disk images. It performs several checks, including:
+.IP "\(bu" 2
+Directory Entry Blocks (DEBs).
+.IP "\(bu" 2
+Consistency between DEBs and the disk's allocation map.
+.IP "\(bu" 2
+Validation of sequential file linkage.
+.IP "\(bu" 2
+Detection of shared disk sectors between files.
+.IP "\(bu" 2
+For IMD images, it reports bad sectors (based on IMD flags) and identifies files potentially affected by them.
+.SH OPTIONS
+.TP
+.BI "-f, --file " pattern
+Optional. Check only files matching the name or wildcard pattern. Files can also be filtered by User ID.
+.TP
+.B -v, --verbose
+Enable verbose output.
+.SH AUTHOR
+Written by Howard M. Harte.
+.SH REPORTING BUGS
+Report bugs at <https://github.com/hharte/oasis-utils/issues>
+.SH COPYRIGHT
+Copyright © 2021-2025 Howard M. Harte
+Licensed under the MIT License.
+.SH SEE ALSO
+.BR oasis_disk_util (1),
+.BR oasis_initdisk (1),
+.BR oasis_send (1),
+.BR oasis_recv (1),
+.BR oasis_check_imd.py (1)

@@ -1,0 +1,62 @@
+.\" Man page for oasis_initdisk
+.TH OASIS_INITDISK 1 "2025-05-25" "OASIS UTILITIES" "User Commands"
+.SH NAME
+oasis_initdisk \- Initializes or formats an OASIS disk image file (.img or .imd).
+.SH SYNOPSIS
+.B oasis_initdisk
+.I image_path_or_fd
+.RI [ OPTION ]...
+.SH DESCRIPTION
+The
+.B oasis_initdisk
+utility is used to format and initialize new OASIS disk images or re-initialize existing ones. It supports various operations for setting up the disk's filesystem structures, label, and write-protection status.
+.SH OPTIONS
+Options are case-insensitive and space-separated.
+.TP
+.B BUILD
+Writes bootstrap, label, and directory to an already formatted disk. Assumes existing low-level format.
+.TP
+.B CLEAR (CL)
+Erases all files by re-initializing the directory and allocation map, effectively making the disk appear empty while preserving the low-level format.
+.TP
+.B FORMAT (FMT)
+Performs a low-level format (simulated for \fB.img\fR, actual for \fB.imd\fR using \fBlibimdf\fR) and then initializes the OASIS filesystem structures (boot sector, filesystem block, allocation map, directory).
+.TP
+.BI LABEL " name"
+Sets or changes the disk's volume label to <\fIname\fR> (max 8 characters).
+.TP
+.B NOWP
+Removes software write protection for the disk.
+.TP
+.B WP
+Enables software write protection for the disk.
+.TP
+.BI HEAD " n"
+(Requires FORMAT) Number of disk surfaces (1-255).
+.TP
+.BI INCR " n"
+(Requires FORMAT) Logical sector increment (interleave factor) (1-255).
+.TP
+.BI SECTOR " n"
+(Requires FORMAT) Sectors per track (1-255).
+.TP
+.BI SIZE " n"
+(Requires FORMAT, CLEAR, or BUILD) Number of directory entries.
+.TP
+.BI SKEW " n"
+(Requires FORMAT) Track skew factor (0-255).
+.TP
+.BI TRACKS " n"
+(Requires FORMAT) Tracks per surface (1-255).
+.SH AUTHOR
+Written by Howard M. Harte.
+.SH REPORTING BUGS
+Report bugs at <https://github.com/hharte/oasis-utils/issues>
+.SH COPYRIGHT
+Copyright © 2021-2025 Howard M. Harte
+Licensed under the MIT License.
+.SH SEE ALSO
+.BR oasis_disk_util (1),
+.BR oasis_chkdsk (1),
+.BR oasis_send (1),
+.BR oasis_recv (1)

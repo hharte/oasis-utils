@@ -1,0 +1,74 @@
+.\" Man page for oasis_send
+.TH OASIS_SEND 1 "2025-05-25" "OASIS UTILITIES" "User Commands"
+.SH NAME
+oasis_send \- Sends files from the host system to an OASIS system via a serial port.
+.SH SYNOPSIS
+.B oasis_send
+.I port
+.RI [ options ]
+.I filename_or_pattern ...
+.SH DESCRIPTION
+The
+.B oasis_send
+utility transfers files from the host computer to an OASIS system using a serial connection. It implements the OASIS serial transfer protocol. The host filename must encode the target OASIS filename, type, format, attributes, and optionally record length, key length, or load address.
+.SH FILENAME CONVENTION
+The host filename
+.B must
+follow this structure:
+.BR FNAME.FTYPE_[S|D|A|R|I|K][ATTRS][_RRR[_KKK_LLLL]]
+.IP "\(bu" 2
+\fIFNAME\fR: Max 8 characters.
+.IP "\(bu" 2
+\fIFTYPE\fR: Max 8 characters.
+.IP "\(bu" 2
+\fIS|D|A|R|I|K\fR: Single character for file format (Sequential, Direct, Absolute, Relocatable, Indexed, Keyed). If only \fIFNAME.TYPE\fR is given, Sequential format is assumed.
+.IP "\(bu" 2
+\fIATTRS\fR: Optional attributes (R=Read-prot, W=Write-prot, D=Delete-prot). E.g., \fBRW\fR, \fBD\fR.
+.IP "\(bu" 2
+\fIRRR\fR: Record Length. Required for Direct, Indexed, Keyed. For Absolute/Relocatable, it's usually SECTOR_SIZE (256). For Sequential, it's the longest record length (if 0, \fBoasis_send\fR may calculate it or use a default).
+.IP "\(bu" 2
+\fIKKK\fR: Key Length (for Indexed/Keyed).
+.IP "\(bu" 2
+\fILLLL\fR: Load Address (hex, for Absolute).
+.PP
+Examples: \fBMYPROG.BAS_S\fR, \fBDATA.REC_D_128\fR, \fBSYSTEM.CMD_AR_256_E000\fR.
+Wildcards in <\fIfilename_or_pattern\fR> are expanded by \fBoasis_send\fR on Windows; on POSIX, they are typically expanded by the shell.
+.SH OPTIONS
+.TP
+.B -q
+Quiet mode. Suppresses non-essential output.
+.TP
+.B -d
+Debug mode. Provides verbose output for troubleshooting.
+.TP
+.B -a, --ascii
+ASCII mode. Converts host line endings (CR/LF to CR) and treats SUB as EOF. Implies Sequential format.
+.TP
+.B -f, --flow-control
+Disable Hardware (RTS/CTS) Flow Control (default: enabled).
+.TP
+.BI -b " rate"
+Baud rate (default: 19200).
+.TP
+.BI -u " id"
+User ID (0-255) for the Directory Entry Block (DEB) of the sent file (default: 0).
+.TP
+.BI --pcap " file"
+Log raw serial communication to a PCAP file.
+.TP
+.BI --pacing-packet " ms"
+Delay in milliseconds after sending each packet.
+.SH SERIAL PROTOCOL
+The utility uses DLE stuffing, Shift-In/Out states for MSB, RLE compression, LRC checksums, and ENQ/ACK handshaking.
+.SH AUTHOR
+Written by Howard M. Harte.
+.SH REPORTING BUGS
+Report bugs at <https://github.com/hharte/oasis-utils/issues>
+.SH COPYRIGHT
+Copyright © 2021-2025 Howard M. Harte
+Licensed under the MIT License.
+.SH SEE ALSO
+.BR oasis_disk_util (1),
+.BR oasis_chkdsk (1),
+.BR oasis_initdisk (1),
+.BR oasis_recv (1)

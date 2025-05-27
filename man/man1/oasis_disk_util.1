@@ -1,0 +1,79 @@
+.\" Man page for oasis_disk_util
+.TH OASIS_DISK_UTIL 1 "2025-05-25" "OASIS UTILITIES" "User Commands"
+.SH NAME
+oasis_disk_util \- Inspects and manipulates OASIS .img or .imd disk images.
+.SH SYNOPSIS
+.B oasis_disk_util
+.I disk_image_path
+.I OPERATION
+.RI [ ARGS ...]
+.SH DESCRIPTION
+The
+.B oasis_disk_util
+command-line utility allows users to interact with OASIS disk images, including listing directory contents, extracting files, copying files to the image, renaming files within the image, erasing files, and displaying detailed information about the disk image structure and metadata.
+.SH OPERATIONS
+.TP
+.B list (l)
+Lists files in the disk image.
+Args: \fI[pattern]\fR \fI[-u user_id]\fR
+.RS
+.IP "\(bu" 2
+\fIpattern\fR: Optional wildcard (e.g., "FILE*.TXT", "?INFO.DAT"). Default: all files.
+.RE
+.TP
+.B extract (ex)
+Extracts files from the disk image to the host filesystem.
+Args: \fI[pattern]\fR \fI[output_path]\fR \fI[-a|--ascii]\fR \fI[-u user_id]\fR
+.RS
+.IP "\(bu" 2
+\fIpattern\fR: Optional wildcard. Default: all files.
+.IP "\(bu" 2
+\fIoutput_path\fR: Directory to extract to. Default: current directory.
+.RE
+.TP
+.B info (i)
+Displays disk image information.
+Args: \fI[-u user_id]\fR (user filter applies to some detailed stats if relevant).
+.TP
+.B erase (er)
+Marks file(s) as deleted and frees their blocks.
+Args: <\fIfilename_pattern\fR> \fI[-u user_id]\fR
+.TP
+.B rename (r)
+Renames a file within the disk image.
+Args: <\fIold_filename\fR> <\fInew_filename\fR> \fI[-u user_id]\fR
+.RS
+.IP "\(bu" 2
+<\fIold_filename\fR>: The exact current name of the file on the OASIS disk (e.g., "OLDFILE.TXT"). Does not support wildcards.
+.IP "\(bu" 2
+<\fInew_filename\fR>: The new desired name for the file (e.g., "NEWFILE.DAT"). Does not support wildcards.
+.RE
+.TP
+.B copyfile (c, co, insert, in, ins)
+Copies a file from the host system into the disk image.
+Args: <\fIhost_filepath\fR> \fI[oasis_filename]\fR \fI[-a|--ascii]\fR \fI[-u user_id]\fR
+.RS
+.IP "\(bu" 2
+<\fIhost_filepath\fR>: Path to the file on the host system.
+.IP "\(bu" 2
+\fI[oasis_filename]\fR: Optional. Target name on OASIS disk (e.g., MYPROG.BAS_S). If omitted, derived from host filename.
+.RE
+.SH OPTIONS
+.TP
+.BI "-u, --user " id
+User ID (0-255) or "*" (or "\-1") for any owner. Default for \fBlist\fR: "*". Default for \fBextract\fR/\fBinfo\fR/\fBerase\fR/\fBrename\fR/\fBcopyfile\fR: "0".
+.TP
+.B -a, --ascii
+(For \fBextract\fR, \fBcopyfile\fR) Convert ASCII files' line endings. For \fBextract\fR: OASIS (CR) to Host (LF/CRLF), SUB removed. For \fBcopyfile\fR: Host (LF/CRLF) to OASIS (CR), SUB potentially added.
+.SH AUTHOR
+Written by Howard M. Harte.
+.SH REPORTING BUGS
+Report bugs at <https://github.com/hharte/oasis-utils/issues>
+.SH COPYRIGHT
+Copyright © 2021-2025 Howard M. Harte
+Licensed under the MIT License.
+.SH SEE ALSO
+.BR oasis_chkdsk (1),
+.BR oasis_initdisk (1),
+.BR oasis_send (1),
+.BR oasis_recv (1)

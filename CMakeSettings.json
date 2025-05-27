@@ -1,4 +1,4 @@
-{
+﻿{
   "configurations": [
     {
       "name": "x64-Debug",
@@ -9,9 +9,7 @@
       "installRoot": "${projectDir}\\out\\install\\${name}",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "",
-      "ctestCommandArgs": "",
-      "enableClangTidyCodeAnalysis": true,
-      "enableMicrosoftCodeAnalysis": true
+      "ctestCommandArgs": ""
     },
     {
       "name": "x86-Debug",
@@ -23,9 +21,7 @@
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x86" ],
-      "variables": [],
-      "enableClangTidyCodeAnalysis": true,
-      "enableMicrosoftCodeAnalysis":  true
+      "variables": []
     }
   ]
 }

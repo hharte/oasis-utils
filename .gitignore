@@ -1,13 +1,4 @@
-CMakeCache.txt
-CMakeFiles/
-Makefile
-cmake_install.cmake
-compile_commands.json
-install_manifest.txt
-oasis
-oasis_recv
-oasis_send
+build/
 out/
 .vs/
 .vscode/
-*.a

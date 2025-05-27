@@ -1,0 +1,39 @@
+.\" Man page for oasis_check_imd.py
+.TH OASIS_CHECK_IMD.PY 1 "2025-05-25" "OASIS UTILITIES" "User Commands"
+.SH NAME
+oasis_check_imd.py \- Batch check .imd files using oasis_chkdsk.
+.SH SYNOPSIS
+.B python oasis_check_imd.py
+.I directory
+.RI [-v|--verbose]
+.RI [--chkdsk-verbose]
+.RI [--chkdsk-path " path" ]
+.SH DESCRIPTION
+The
+.B oasis_check_imd.py
+script recursively finds all \fB.imd\fR files in a given directory and runs the
+.B oasis_chkdsk
+utility on each of them. It reports successes and failures.
+.SH ARGUMENTS
+.TP
+.I directory
+Directory to search recursively for \fB.imd\fR files.
+.SH OPTIONS
+.TP
+.B -v, --verbose
+Enable verbose output from this script itself (shows stdout/stderr from \fBoasis_chkdsk\fR on error).
+.TP
+.B --chkdsk-verbose
+Pass the \fB-v\fR flag to the \fBoasis_chkdsk\fR utility itself.
+.TP
+.BI --chkdsk-path " path"
+Path to the \fBoasis_chkdsk\fR executable (default: assumes \fBoasis_chkdsk\fR is in PATH).
+.SH AUTHOR
+Written by Howard M. Harte.
+.SH REPORTING BUGS
+Report bugs at <https://github.com/hharte/oasis-utils/issues>
+.SH COPYRIGHT
+Copyright © 2021-2025 Howard M. Harte
+Licensed under the MIT License.
+.SH SEE ALSO
+.BR oasis_chkdsk (1)
