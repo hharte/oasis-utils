@@ -67,8 +67,11 @@
 #define LF  0x0A /* Line Feed */
 #define RUB 0x7F /* Rubout / Delete */
 
-#define ADDITIONAL_AM_SECTORS_MASK		(0x07)
-#define FS_FLAGS_WP						(1 << 7)
+/* Filesystem Block fs_flags definitions */
+/* Reference: OASIS Macro Assembler Language Reference Manual, Second Edition, March 1980, Appendix C, p. 147 (Disk UCB Byte 13) */
+#define ADDITIONAL_AM_SECTORS_MASK		(0x3F)  /* Bits 5:0: Number of additional allocation map sectors (0-63). */
+#define FS_FLAGS_IBM_FORMAT             (1 << 6)  /* Bit 6: If set, Track 0 is in IBM single-density format. */
+#define FS_FLAGS_WP						(1 << 7)  /* Bit 7: If set, disk is software write-protected. */
 
 /*
  * Ensure structures are packed tightly, matching the on-disk format.
@@ -99,34 +102,36 @@ typedef struct boot_sector {
 /**
  * struct filesystem_block - Structure of the OASIS Filesystem Header Block.
  * Typically located at sector 1 (offset 256).
- * @label:		Volume label (ASCII, space-padded).
+ * @label:		Volume label (ASCII, uppercase, space-padded, not null-terminated).
  * @timestamp:		Timestamp of filesystem creation/last update.
- * @backup_vol:		Label of the volume this was backed up from (ASCII, space-padded).
+ * @backup_vol:		Label of the volume this was backed up from (ASCII, uppercase, space-padded, not null-terminated).
  * @backup_timestamp: Timestamp of the last backup operation.
- * @flags:              Filesystem flags (exact meaning TBD).
+ * @flags:              Filesystem flags (exact meaning TBD in this header, may correspond to UCB byte 12 or other system-specific flags).
  * @num_heads:		Number of heads (high nibble) & drive type (low nibble).
  * @num_cyl:		Number of cylinders.
  * @num_sectors:	Number of sectors per track.
  * @dir_sectors_max: Maximum number of directory entry sectors.
  * @reserved:		Reserved, always zero?
- * @fs_flags:		Number of additional allocation map sectors.
  * @free_blocks:	Count of free blocks on the volume (1K units).
+ * @fs_flags:		Filesystem status flags. See FS_FLAGS_* and ADDITIONAL_AM_SECTORS_MASK defines.
+ * Reference: OASIS Macro Assembler Language Reference Manual, Second Edition, March 1980,
+ * Appendix C, p. 147 (Disk UCB Byte 13: "WP/IBM/Additional").
  */
 typedef struct filesystem_block {
 	char		label[FNAME_LEN];
 	oasis_tm_t	timestamp;
 	uint8_t		backup_vol[FNAME_LEN];
 	oasis_tm_t	backup_timestamp;
-	uint8_t		flags;		/* Meaning unclear from ref */
+	uint8_t		flags;		/* Filesystem flags (exact meaning TBD in oasis.h). */
 	uint8_t		num_heads;      /* High nibble = heads, Low nibble = drive type? */
 	uint8_t		num_cyl;
 	uint8_t		num_sectors;
 	uint8_t		dir_sectors_max; /* Number of sectors containing eight 32-byte entries each. */
 	uint16_t	reserved;		/* Reserved, always 0? */
 	uint16_t	free_blocks;    /* In 1K units */
-	uint8_t		fs_flags;		/* This is actually fs_flags.
-									 * The three LSBs are fs_flags: Number of additional allocation map sectors.
-									 * Bit 7 indicates that the disk is (software) write protected. */
+	uint8_t		fs_flags;		/* Bit 7: Write Protected (FS_FLAGS_WP)
+									 * Bit 6: Track 0 Single Density (FS_FLAGS_IBM_FORMAT)
+									 * Bits 5:0: Number of additional allocation map sectors (ADDITIONAL_AM_SECTORS_MASK) */
 } filesystem_block_t;
 
 /*
@@ -143,8 +148,8 @@ typedef struct {
  * struct directory_entry_block - Structure of an OASIS Directory Entry (DEB).
  * Each entry is 32 bytes.
  * @file_format:		Type and attributes of the file (see FILE_FORMAT_* defines).
- * @file_name:			File name (ASCII, space-padded).
- * @file_type:			File extension/type (ASCII, space-padded).
+ * @file_name:			File name (ASCII, uppercase, space-padded, not null-terminated).
+ * @file_type:			File extension/type (ASCII, uppercase, space-padded, not null-terminated).
  * @record_count:		Number of records in the file (little-endian).
  * @block_count:		Number of blocks (1024 bytes) allocated (little-endian).
  * @start_sector:		Logical sector number (LBA) of the first sector (little-endian).
@@ -162,7 +167,7 @@ typedef struct directory_entry_block {
 	uint16_t	block_count;	/* Number of 1K Blocks occupied by the file */
 	uint16_t	start_sector;
 	uint16_t	file_format_dependent1;	/* Variable by file format:
-	                                     * I, K = Bits 15:9 are Key length, bits 8:0 are record length.
+										 * I, K = Bits 15:9 are Key length, bits 8:0 are record length.
 										 * S = Record length of longest record.
 										 * D = Allocated Record Length.
 										 * A, R = Record Length (SECTOR_LEN)
@@ -171,7 +176,7 @@ typedef struct directory_entry_block {
 	uint8_t		owner_id;	/* Owner ID */
 	uint8_t		shared_from_owner_id;
 	uint16_t	file_format_dependent2;	/* Variable by file format:
-	                                     * I, K = Allocated file size.
+										 * I, K = Allocated file size.
 										 * S = Disk address of last sector in file.
 										 * D = Always zero.
 										 * R = Program length.
@@ -230,7 +235,7 @@ typedef struct {
   * Sector 1: filesystem_block_t (32 bytes)
   * allocation map (remainder of sector 1)
   *
-  * Sectors 2+ Additional allocation map sectors (0-7)
+  * Sectors 2+ Additional allocation map sectors (0-63, from fs_flags bits 5:0)
   * Following allocation map: Directory Sectors (dir_sectors_max): eight DEB's per sector.
   * Following Directory Sectors: File Data
   */
@@ -238,7 +243,7 @@ typedef struct oasis_disk_layout {
 	boot_sector_t	boot;		/* Sector 0 */
 	filesystem_block_t fsblock;	/* Sector 1 */
 	oasis_alloc_map_t	alloc_map;	/* Allocation Map */
-	oasis_directory_t *directory;	/* Pointer to array of DEBs. */
+	oasis_directory_t* directory;	/* Pointer to array of DEBs. */
 } oasis_disk_layout_t;
 
 /* Restore previous packing alignment */
