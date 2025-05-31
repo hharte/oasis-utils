@@ -179,23 +179,23 @@ void display_disk_info(const oasis_disk_layout_t* disk_layout) {
     memcpy(backup_vol_str, disk_layout->fsblock.backup_vol, FNAME_LEN); backup_vol_str[FNAME_LEN] = '\0';
 
     printf("--- Filesystem Information ---\n");
-    printf("Label:          '%.*s'\n", FNAME_LEN, label_str);
+    printf("Label:           '%.*s'\n", FNAME_LEN, label_str);
     oasis_time_str(time_str, sizeof(time_str), &disk_layout->fsblock.timestamp);
-    printf("Timestamp:      %s\n", time_str);
-    printf("Backup Volume:  '%.*s'\n", FNAME_LEN, backup_vol_str);
+    printf("Timestamp:       %s\n", time_str);
+    printf("Backup Volume:   '%.*s'\n", FNAME_LEN, backup_vol_str);
     oasis_time_str(time_str, sizeof(time_str), &disk_layout->fsblock.backup_timestamp);
-    printf("Backup Time:    %s\n", time_str);
-    printf("Flags:          0x%02X\n", disk_layout->fsblock.flags);
-    printf("Heads/Drive:    %d / 0x%X\n", disk_layout->fsblock.num_heads >> 4, disk_layout->fsblock.num_heads & 0x0F);
-    printf("Cylinders:      %d\n", disk_layout->fsblock.num_cyl);
-    printf("Sectors/Track:  %d\n", disk_layout->fsblock.num_sectors);
-    printf("Total Sectors:  %zu\n", get_total_sectors(&disk_layout->fsblock));
-    printf("Total Blocks:   %zu\n", get_total_blocks(&disk_layout->fsblock));
-    printf("Max Dir Sectors:%d (%zu directory entries)\n", disk_layout->fsblock.dir_sectors_max, (size_t)disk_layout->fsblock.dir_sectors_max * DIR_ENTRIES_PER_SECTOR);
-    printf("Free Blocks:    %d (%.2f MiB)\n", disk_layout->fsblock.free_blocks, (double)disk_layout->fsblock.free_blocks * BLOCK_SIZE / (1024.0 * 1024.0));
-    printf("Extra AM Secs:  %d\n", disk_layout->fsblock.fs_flags & ADDITIONAL_AM_SECTORS_MASK);
-    printf("Volume Status:  %s\n", (disk_layout->fsblock.fs_flags & FS_FLAGS_WP) ? "Protected" : "Write Enabled");
-    printf("Other fs_flags: 0x%02x\n\n", disk_layout->fsblock.fs_flags & 0x78);
+    printf("Backup Time:     %s\n", time_str);
+    printf("Flags:           0x%02X\n", disk_layout->fsblock.flags);
+    printf("Heads/Drive:     %d / 0x%X\n", disk_layout->fsblock.num_heads >> 4, disk_layout->fsblock.num_heads & 0x0F);
+    printf("Cylinders:       %d\n", disk_layout->fsblock.num_cyl);
+    printf("Sectors/Track:   %d\n", disk_layout->fsblock.num_sectors);
+    printf("Total Sectors:   %zu\n", get_total_sectors(&disk_layout->fsblock));
+    printf("Total Blocks:    %zu\n", get_total_blocks(&disk_layout->fsblock));
+    printf("Max Dir Sectors: %d (%zu directory entries)\n", disk_layout->fsblock.dir_sectors_max, (size_t)disk_layout->fsblock.dir_sectors_max * DIR_ENTRIES_PER_SECTOR);
+    printf("Free Blocks:     %d (%.2f MiB)\n", disk_layout->fsblock.free_blocks, (double)disk_layout->fsblock.free_blocks * BLOCK_SIZE / (1024.0 * 1024.0));
+    printf("Extra AM Secs:   %d\n", disk_layout->fsblock.fs_flags & ADDITIONAL_AM_SECTORS_MASK);
+    printf("Volume Status:   %s\n", (disk_layout->fsblock.fs_flags & FS_FLAGS_WP) ? "Protected" : "Write Enabled");
+    printf("Track 0 IBM Fmt: %s\n", (disk_layout->fsblock.fs_flags & FS_FLAGS_IBM_FORMAT) ? "Yes" : "No");
 
     printf("--- Allocation Map Summary ---\n");
     if (disk_layout->alloc_map.map_data) {
