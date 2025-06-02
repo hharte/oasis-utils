@@ -11,12 +11,14 @@
 #include <algorithm>    /* For std::equal */
 #include <cstdint>      /* For uint32_t, etc. */
 #include <filesystem>   /* For std::filesystem::path, temp_directory_path, remove */
+#include <ctime>        /* For time_t, time for timestamp comparison */
 
 /* Common Test Utilities */
 #include "test_oasis_common.h"
 
 /* DUT headers */
-#include "oasis.h"
+#include "oasis_pcap.h"
+#include "oasis_endian.h" /* Added for be32toh and other endian utilities */
 
 
 class OasisPcapTest : public ::testing::Test {
@@ -32,8 +34,8 @@ protected:
         const ::testing::TestInfo* const test_info =
             ::testing::UnitTest::GetInstance()->current_test_info();
         std::string unique_filename = std::string("oasis_pcap_test_") +
-            test_info->test_suite_name() + "_" +
-            test_info->name() + ".pcap";
+            (test_info ? test_info->test_suite_name() : "DefaultSuite") + "_" +
+            (test_info ? test_info->name() : "DefaultTest") + ".pcap";
         temp_pcap_filepath = std::filesystem::temp_directory_path() / unique_filename;
         temp_pcap_filename_str = temp_pcap_filepath.string();
 
@@ -64,41 +66,73 @@ protected:
         EXPECT_EQ(header.thiszone, 0);
         EXPECT_EQ(header.sigfigs, static_cast<uint32_t>(0));
         EXPECT_EQ(header.snaplen, static_cast<uint32_t>(65535));
-        EXPECT_EQ(header.network, static_cast<uint32_t>(149)); /* LINKTYPE_USER2 */
+        EXPECT_EQ(header.network, static_cast<uint32_t>(LINKTYPE_RTAC_SERIAL));
     }
 
+    /*
+     * Verifies a single PCAP record, including the rtacser_hdr_t pseudo-header.
+     * @param pcap_buffer The complete buffer containing the PCAP data (global header + records).
+     * @param offset The offset within pcap_buffer where this specific record (pcaprec_hdr_t) starts.
+     * @param expected_oasis_payload_len The length of the original OASIS message data.
+     * @param expected_direction The original direction (OASIS_PCAP_RX or OASIS_PCAP_TX).
+     * @param expected_oasis_payload_original The original OASIS message data (before 7-bit masking).
+     */
     void VerifyPcapRecord(const std::vector<uint8_t>& pcap_buffer, size_t offset,
-        uint32_t expected_data_len_after_dir_byte, /* Original data len */
-        int expected_direction,
-        const std::vector<uint8_t>& expected_payload_data_original) {
-        ASSERT_GT(pcap_buffer.size(), offset + sizeof(pcaprec_hdr_t));
+        uint32_t expected_oasis_payload_len,
+        int expected_direction, /* OASIS_PCAP_RX or OASIS_PCAP_TX */
+        const std::vector<uint8_t>& expected_oasis_payload_original) {
+
+        /* Check if there's enough data for the pcap record header */
+        ASSERT_GT(pcap_buffer.size(), offset + sizeof(pcaprec_hdr_t) - 1)
+            << "Buffer too small for pcaprec_hdr_t at offset " << offset;
         pcaprec_hdr_t rec_hdr;
         memcpy(&rec_hdr, pcap_buffer.data() + offset, sizeof(pcaprec_hdr_t));
 
-        uint32_t expected_incl_len = expected_data_len_after_dir_byte + 1; /* +1 for direction byte */
+        /* The included length in PCAP record is rtacser_hdr_t + OASIS payload */
+        uint32_t expected_incl_len = expected_oasis_payload_len + sizeof(rtacser_hdr_t);
         EXPECT_EQ(rec_hdr.incl_len, expected_incl_len);
-        EXPECT_EQ(rec_hdr.orig_len, expected_incl_len);
-        EXPECT_GE(rec_hdr.ts_sec, 0U);
-        EXPECT_LT(rec_hdr.ts_usec, 1000000U);
+        EXPECT_EQ(rec_hdr.orig_len, expected_incl_len); /* Assuming orig_len is same as incl_len */
 
+        time_t now = time(NULL);
+        EXPECT_GE(rec_hdr.ts_sec, now - 60) << "PCAP record timestamp seconds seem too old.";
+        EXPECT_LE(rec_hdr.ts_sec, now + 60) << "PCAP record timestamp seconds seem too far in future.";
+        EXPECT_LT(rec_hdr.ts_usec, 1000000U) << "PCAP record timestamp microseconds out of range.";
 
-        size_t record_data_offset = offset + sizeof(pcaprec_hdr_t);
-        ASSERT_GT(pcap_buffer.size(), record_data_offset); /* Check for direction byte */
-        uint8_t actual_direction = pcap_buffer[record_data_offset];
-        EXPECT_EQ(actual_direction, expected_direction);
+        size_t rtac_header_offset = offset + sizeof(pcaprec_hdr_t);
+        ASSERT_GT(pcap_buffer.size(), rtac_header_offset + sizeof(rtacser_hdr_t) - 1)
+            << "Buffer too small for rtacser_hdr_t at offset " << rtac_header_offset;
+        rtacser_hdr_t actual_rtac_hdr;
+        memcpy(&actual_rtac_hdr, pcap_buffer.data() + rtac_header_offset, sizeof(rtacser_hdr_t));
 
-        ASSERT_EQ(pcap_buffer.size(), record_data_offset + 1 + expected_data_len_after_dir_byte);
+        /* Verify rtacser_hdr_t fields */
+        /* Timestamps in rtacser_hdr are Big Endian, pcaprec_hdr timestamps are in file/host order */
+        EXPECT_EQ(be32toh(actual_rtac_hdr.ts_sec), rec_hdr.ts_sec) << "RTAC ts_sec (BE->Host) should match PCAP record ts_sec.";
+        EXPECT_EQ(be32toh(actual_rtac_hdr.ts_usec), rec_hdr.ts_usec) << "RTAC ts_usec (BE->Host) should match PCAP record ts_usec.";
 
-        std::vector<uint8_t> actual_payload_data(expected_data_len_after_dir_byte);
-        if (expected_data_len_after_dir_byte > 0) {
-            memcpy(actual_payload_data.data(), pcap_buffer.data() + record_data_offset + 1, expected_data_len_after_dir_byte);
+        if (expected_direction == OASIS_PCAP_TX) {
+            EXPECT_EQ(actual_rtac_hdr.event_type, 0x01) << "RTAC event_type should be 0x01 (DATA_TX_START) for TX.";
+        }
+        else { /* OASIS_PCAP_RX */
+            EXPECT_EQ(actual_rtac_hdr.event_type, 0x02) << "RTAC event_type should be 0x02 (DATA_RX_START) for RX.";
+        }
+        EXPECT_EQ(actual_rtac_hdr.control_line_state, 0x00) << "RTAC control_line_state should be 0x00.";
+        EXPECT_EQ(actual_rtac_hdr.footer[0], 0x00) << "RTAC footer[0] should be 0x00.";
+        EXPECT_EQ(actual_rtac_hdr.footer[1], 0x00) << "RTAC footer[1] should be 0x00.";
+
+        size_t expected_record_end_offset = rtac_header_offset + sizeof(rtacser_hdr_t) + expected_oasis_payload_len;
+        ASSERT_GE(pcap_buffer.size(), expected_record_end_offset)
+            << "Buffer too small for the complete record data. Expected end: " << expected_record_end_offset << ", Buffer size: " << pcap_buffer.size();
+
+        std::vector<uint8_t> actual_oasis_payload(expected_oasis_payload_len);
+        if (expected_oasis_payload_len > 0) {
+            memcpy(actual_oasis_payload.data(), pcap_buffer.data() + rtac_header_offset + sizeof(rtacser_hdr_t), expected_oasis_payload_len);
         }
 
-        std::vector<uint8_t> expected_masked_payload(expected_payload_data_original.size());
-        for (size_t i = 0; i < expected_payload_data_original.size(); ++i) {
-            expected_masked_payload[i] = expected_payload_data_original[i] & 0x7F;
+        std::vector<uint8_t> expected_masked_payload(expected_oasis_payload_original.size());
+        for (size_t i = 0; i < expected_oasis_payload_original.size(); ++i) {
+            expected_masked_payload[i] = expected_oasis_payload_original[i] & 0x7F;
         }
-        EXPECT_EQ(actual_payload_data, expected_masked_payload);
+        EXPECT_EQ(actual_oasis_payload, expected_masked_payload) << "Masked OASIS payload data mismatch.";
     }
 };
 
@@ -111,7 +145,7 @@ TEST_F(OasisPcapTest, CreateValidFile) {
     pcap_stream = nullptr;
 
     std::vector<uint8_t> content = tests_common::read_file_to_bytes(temp_pcap_filepath);
-    ASSERT_FALSE(content.empty());
+    ASSERT_FALSE(content.empty()) << "PCAP file is empty after create and close.";
     VerifyPcapGlobalHeader(content);
 }
 
@@ -125,7 +159,10 @@ TEST_F(OasisPcapTest, CreateNullStreamPtr) {
 }
 
 TEST_F(OasisPcapTest, CreateFileInvalidPath) {
-    std::string invalid_path_filename = "non_existent_dir_for_pcap_test/test_file.pcap";
+    std::filesystem::path non_existent_dir = temp_pcap_filepath.parent_path() / "non_existent_pcap_subdir_test";
+    std::filesystem::path invalid_path_obj = non_existent_dir / "test_file.pcap";
+    std::string invalid_path_filename = invalid_path_obj.string();
+
     EXPECT_EQ(-1, oasis_pcap_create(invalid_path_filename.c_str(), &pcap_stream));
     EXPECT_EQ(nullptr, pcap_stream);
 }
@@ -143,7 +180,7 @@ TEST_F(OasisPcapTest, AddRecordRx) {
     pcap_stream = nullptr;
 
     std::vector<uint8_t> content = tests_common::read_file_to_bytes(temp_pcap_filepath);
-    ASSERT_GE(content.size(), sizeof(pcap_hdr_t) + sizeof(pcaprec_hdr_t) + 1 + data_to_log.size());
+    ASSERT_GE(content.size(), sizeof(pcap_hdr_t) + sizeof(pcaprec_hdr_t) + sizeof(rtacser_hdr_t) + data_to_log.size());
     VerifyPcapGlobalHeader(content);
     VerifyPcapRecord(content, sizeof(pcap_hdr_t), (uint32_t)data_to_log.size(), OASIS_PCAP_RX, data_to_log);
 }
@@ -159,7 +196,7 @@ TEST_F(OasisPcapTest, AddRecordTx) {
     pcap_stream = nullptr;
 
     std::vector<uint8_t> content = tests_common::read_file_to_bytes(temp_pcap_filepath);
-    ASSERT_GE(content.size(), sizeof(pcap_hdr_t) + sizeof(pcaprec_hdr_t) + 1 + data_to_log.size());
+    ASSERT_GE(content.size(), sizeof(pcap_hdr_t) + sizeof(pcaprec_hdr_t) + sizeof(rtacser_hdr_t) + data_to_log.size());
     VerifyPcapGlobalHeader(content);
     VerifyPcapRecord(content, sizeof(pcap_hdr_t), (uint32_t)data_to_log.size(), OASIS_PCAP_TX, data_to_log);
 }
@@ -175,7 +212,7 @@ TEST_F(OasisPcapTest, AddRecordEmptyData) {
     pcap_stream = nullptr;
 
     std::vector<uint8_t> content = tests_common::read_file_to_bytes(temp_pcap_filepath);
-    ASSERT_GE(content.size(), sizeof(pcap_hdr_t) + sizeof(pcaprec_hdr_t) + 1); /* +1 for direction byte */
+    ASSERT_GE(content.size(), sizeof(pcap_hdr_t) + sizeof(pcaprec_hdr_t) + sizeof(rtacser_hdr_t));
     VerifyPcapGlobalHeader(content);
     VerifyPcapRecord(content, sizeof(pcap_hdr_t), 0, OASIS_PCAP_RX, empty_data);
 }
@@ -199,7 +236,7 @@ TEST_F(OasisPcapTest, AddRecordInvalidDirection) {
 }
 
 TEST_F(OasisPcapTest, AddRecordDataTooLongForMaskBuffer) {
-    const uint16_t data_len_too_long = 1025; /* MAX_MASK_BUFFER_SIZE in oasis_pcap.c is 1024 */
+    const uint16_t data_len_too_long = MAX_MASK_BUFFER_SIZE + 1;
     std::vector<uint8_t> long_data(data_len_too_long, 0xAA);
 
     ASSERT_EQ(0, oasis_pcap_create(temp_pcap_filename_str.c_str(), &pcap_stream));
@@ -207,7 +244,6 @@ TEST_F(OasisPcapTest, AddRecordDataTooLongForMaskBuffer) {
 
     EXPECT_EQ(-1, oasis_pcap_add_record(pcap_stream, OASIS_PCAP_TX, long_data.data(), data_len_too_long));
 }
-
 
 /* --- Tests for oasis_pcap_close --- */
 
